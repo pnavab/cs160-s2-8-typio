@@ -1,13 +1,22 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
+import { health } from './endpoints/health'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
 if (Number.isNaN(port)) port = 4000
 
+type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void
+
+const routes: Record<string, RouteHandler> = {
+  '/health': (_req, res) => health(res),
+}
+
 const server = createServer((req, res) => {
-  if (req.url === '/api/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true }))
+  const pathname = (new URL(req.url ?? '/', 'http://localhost').pathname).replace(/\/$/, '') || '/'
+  const handler = routes[pathname]
+  if (handler) {
+    handler(req, res)
     return
   }
 
