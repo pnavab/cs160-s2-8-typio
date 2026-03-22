@@ -1,121 +1,162 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from 'react';
+import LandingPage from '@/components/LandingPage';
+import AuthPage from '@/components/AuthPage';
+import Dashboard from '@/components/Dashboard';
+import CreateRoom from '@/components/CreateRoom';
+import Lobby from '@/components/Lobby';
+import RaceScreen from '@/components/RaceScreen';
+import ResultsScreen from '@/components/ResultsScreen';
+import ProfilePage from '@/components/ProfilePage';
+import type { TypioRoom, TypioUser, RaceFinishResult, LobbyPlayer } from '@/types';
 
-function App() {
-  const [count, setCount] = useState(0)
+type Page =
+  | 'landing'
+  | 'auth'
+  | 'dashboard'
+  | 'createRoom'
+  | 'lobby'
+  | 'race'
+  | 'results'
+  | 'profile';
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+/**
+ * Central page router for Typio.
+ *
+ * Pages:  landing → auth → dashboard → createRoom | joinRoom
+ *         → lobby → race → results → lobby (play again) | dashboard
+ */
+export default function App() {
+  const [page, setPage] = useState<Page>('landing');
+  const [user, setUser] = useState<TypioUser | null>(null);
+  const [room, setRoom] = useState<TypioRoom | null>(null);
+  const [myResult, setMyResult] = useState<RaceFinishResult | null>(null);
+
+  const handleAuthSuccess = (u: TypioUser) => {
+    setUser(u);
+    setPage('dashboard');
+  };
+  const handleLogout = () => {
+    setUser(null);
+    setRoom(null);
+    setPage('landing');
+  };
+
+  const handleRoomCreated = (r: TypioRoom) => {
+    setRoom(r);
+    setPage('lobby');
+  };
+  const handleJoinRoom = (code: string) => {
+    setRoom({ code });
+    setPage('lobby');
+  };
+
+  const handleRaceStart = ({
+    room: r,
+    players,
+  }: {
+    room: TypioRoom | null;
+    players: LobbyPlayer[];
+  }) => {
+    setRoom((prev) => ({
+      code: r?.code ?? prev?.code ?? '',
+      difficulty: r?.difficulty ?? prev?.difficulty,
+      maxPlayers: r?.maxPlayers ?? prev?.maxPlayers,
+      players,
+    }));
+    setPage('race');
+  };
+  const handleRaceFinish = (result: RaceFinishResult) => {
+    setMyResult(result);
+    setPage('results');
+  };
+  const handlePlayAgain = () => {
+    setMyResult(null);
+    setPage('lobby');
+  };
+
+  switch (page) {
+    case 'landing':
+      return (
+        <LandingPage
+          onCreateRoom={() => setPage(user ? 'createRoom' : 'auth')}
+          onJoinRoom={(code) => {
+            if (user) handleJoinRoom(code);
+            else setPage('auth');
+          }}
+          onLogin={() => setPage('auth')}
+        />
+      );
+
+    case 'auth':
+      return (
+        <AuthPage onSuccess={handleAuthSuccess} onBack={() => setPage('landing')} />
+      );
+
+    case 'dashboard':
+      return (
+        <Dashboard
+          user={user}
+          onCreateRoom={() => setPage('createRoom')}
+          onJoinRoom={handleJoinRoom}
+          onProfile={() => setPage('profile')}
+          onLogout={handleLogout}
+        />
+      );
+
+    case 'createRoom':
+      return (
+        <CreateRoom
+          user={user}
+          onRoomCreated={handleRoomCreated}
+          onBack={() => setPage(user ? 'dashboard' : 'landing')}
+        />
+      );
+
+    case 'lobby':
+      return (
+        <Lobby
+          room={room}
+          user={user}
+          onRaceStart={handleRaceStart}
+          onLeave={() => setPage(user ? 'dashboard' : 'landing')}
+        />
+      );
+
+    case 'race':
+      return (
+        <RaceScreen
+          room={room}
+          user={user}
+          players={room?.players}
+          onFinish={handleRaceFinish}
+        />
+      );
+
+    case 'results':
+      return (
+        <ResultsScreen
+          room={room}
+          user={user}
+          myResult={myResult}
+          onPlayAgain={handlePlayAgain}
+          onLeave={() => setPage(user ? 'dashboard' : 'landing')}
+        />
+      );
+
+    case 'profile':
+      return (
+        <ProfilePage
+          user={user}
+          onBack={() => setPage('dashboard')}
+          onLogout={handleLogout}
+        />
+      );
+
+    default:
+      return (
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+          404 — unknown page &quot;{String(page)}&quot;
         </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      );
+  }
 }
-
-export default App

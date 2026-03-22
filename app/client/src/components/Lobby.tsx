@@ -1,0 +1,255 @@
+import { useState, useEffect, useRef } from 'react';
+import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
+import type { TypioRoom, TypioUser, LobbyPlayer } from '@/types';
+
+const MOCK_PLAYERS: LobbyPlayer[] = [
+  { id: '1', username: 'alex', ready: true },
+  { id: '2', username: 'sam', ready: false },
+];
+
+type LobbyProps = {
+  room: TypioRoom | null;
+  user: TypioUser | null;
+  onRaceStart: (payload: { room: TypioRoom | null; players: LobbyPlayer[] }) => void;
+  onLeave: () => void;
+};
+
+export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) {
+  const [players, setPlayers] = useState<LobbyPlayer[]>(MOCK_PLAYERS);
+  const [isReady, setIsReady] = useState(false);
+  const [messages, setMessages] = useState<
+    { id: number; from: string; text: string; system: boolean }[]
+  >([
+    {
+      id: 0,
+      from: 'typio',
+      text: `Room ${room?.code} created. Share the code to invite players!`,
+      system: true,
+    },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [copied, setCopied] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    injectBaseStyles();
+  }, []);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const allReady = players.length >= 2 && players.every((p) => p.ready);
+  const isHost = user?.username === players[0]?.username;
+
+  const toggleReady = () => {
+    setIsReady((r) => !r);
+    setPlayers((ps) =>
+      ps.map((p) => (p.username === user?.username ? { ...p, ready: !p.ready } : p)),
+    );
+  };
+
+  const sendChat = () => {
+    if (!chatInput.trim()) return;
+    const msg = {
+      id: Date.now(),
+      from: user?.username || 'you',
+      text: chatInput.trim(),
+      system: false,
+    };
+    setMessages((m) => [...m, msg]);
+    setChatInput('');
+  };
+
+  const copyCode = () => {
+    void navigator.clipboard.writeText(room?.code || '');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleStart = () => {
+    onRaceStart({ room, players });
+  };
+
+  return (
+    <div className="t-page">
+      <style>{`
+        .lobby-layout { display: grid; grid-template-columns: 220px 1fr 240px; gap: 16px; }
+        .lobby-panel  { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+
+        .player-entry { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .player-entry:last-child { border-bottom: none; }
+        .player-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .player-entry-name { font-size: 14px; flex: 1; }
+        .player-host-tag { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+        .chat-messages { height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+        .chat-msg { font-size: 13px; line-height: 1.4; }
+        .chat-msg .from { font-weight: 600; margin-right: 4px; }
+        .chat-msg.system { color: var(--muted); font-style: italic; font-size: 12px; }
+        .chat-input-row { display: flex; gap: 8px; }
+        .chat-input-row input { flex: 1; font-size: 13px; }
+
+        .code-pill {
+          display: inline-flex; align-items: center; gap: 8px;
+          font-family: var(--mono); font-size: 15px; font-weight: 500;
+          color: var(--accent); background: var(--accent-light);
+          padding: 6px 14px; border-radius: 8px; cursor: pointer;
+          border: 1px solid transparent; transition: background 0.15s;
+        }
+        .code-pill:hover { background: #e2e8ff; }
+
+        .center-panel-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .settings-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        @media (max-width: 700px) {
+          .lobby-layout { grid-template-columns: 1fr; }
+        }
+      `}</style>
+
+      <nav className="t-nav">
+        <div className="t-logo">
+          typi<em>o</em>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button type="button" className="code-pill" onClick={copyCode}>
+            {room?.code || 'XXXXXX'} {copied ? '✓' : '⎘'}
+          </button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={onLeave}>
+            Leave
+          </button>
+        </div>
+      </nav>
+
+      <div className="t-main-lg">
+        <div style={{ marginBottom: 20 }}>
+          <div className="t-section-title">Lobby</div>
+          <div className="t-section-sub">
+            {room?.difficulty || 'Beginner'} · Up to {room?.maxPlayers || 4} players
+          </div>
+        </div>
+
+        <div className="lobby-layout">
+          <div className="lobby-panel">
+            <div className="t-label" style={{ marginBottom: 12 }}>
+              Players ({players.length})
+            </div>
+            {players.map((p, i) => (
+              <div className="player-entry" key={p.id}>
+                <div
+                  className="player-dot"
+                  style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
+                />
+                <span className="player-entry-name">
+                  {p.username}
+                  {p.username === user?.username ? ' (you)' : ''}
+                </span>
+                {i === 0 && <span className="player-host-tag">host</span>}
+                <div
+                  className="badge"
+                  style={{
+                    background: p.ready ? 'var(--green-light)' : 'var(--bg)',
+                    color: p.ready ? 'var(--green)' : 'var(--muted)',
+                    border: `1px solid ${p.ready ? 'var(--green)' : 'var(--border)'}`,
+                    fontFamily: 'var(--mono)',
+                    fontSize: 10,
+                    padding: '2px 7px',
+                    borderRadius: 5,
+                  }}
+                >
+                  {p.ready ? 'ready' : 'waiting'}
+                </div>
+              </div>
+            ))}
+            {Array.from({ length: Math.max(0, (room?.maxPlayers || 4) - players.length) }).map(
+              (_, i) => (
+                <div className="player-entry" key={`empty-${i}`} style={{ opacity: 0.35 }}>
+                  <div className="player-dot" style={{ background: 'var(--border)' }} />
+                  <span className="player-entry-name" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
+                    waiting…
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+
+          <div className="lobby-panel">
+            <div className="center-panel-top">
+              <div className="t-label" style={{ margin: 0 }}>
+                Race settings
+              </div>
+            </div>
+            <div className="settings-row" style={{ marginBottom: 24 }}>
+              <span className="badge badge-blue">{room?.difficulty || 'Beginner'}</span>
+              <span className="badge badge-gray">{room?.maxPlayers || 4} max players</span>
+            </div>
+
+            <hr className="t-divider" style={{ marginTop: 0 }} />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+              <button
+                type="button"
+                className={`btn btn-lg ${isReady ? 'btn-outline' : 'btn-success'}`}
+                style={{ justifyContent: 'center' }}
+                onClick={toggleReady}
+              >
+                {isReady ? '✅ Ready — click to unready' : 'Mark as Ready'}
+              </button>
+
+              {isHost && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg"
+                  style={{ justifyContent: 'center' }}
+                  onClick={handleStart}
+                  disabled={!allReady}
+                >
+                  {allReady
+                    ? 'Start Race →'
+                    : `Waiting for players… (${players.filter((p) => p.ready).length}/${players.length} ready)`}
+                </button>
+              )}
+            </div>
+
+            {!isHost && !allReady && (
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12 }}>
+                Waiting for the host to start the race once everyone is ready.
+              </p>
+            )}
+          </div>
+
+          <div className="lobby-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="t-label" style={{ marginBottom: 12 }}>
+              Chat
+            </div>
+            <div className="chat-messages">
+              {messages.map((m) => (
+                <div key={m.id} className={`chat-msg${m.system ? ' system' : ''}`}>
+                  {!m.system && (
+                    <span className="from" style={{ color: 'var(--accent)' }}>
+                      {m.from}
+                    </span>
+                  )}
+                  {m.text}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="chat-input-row">
+              <input
+                className="t-input"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+                placeholder="Say something…"
+                maxLength={120}
+              />
+              <button type="button" className="btn btn-primary btn-sm" onClick={sendChat}>
+                ↑
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
