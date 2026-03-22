@@ -3,22 +3,38 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import { connectDb } from './db'
 import { health } from './endpoints/health'
+import { login, signup } from './endpoints/auth'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
 if (Number.isNaN(port)) port = 4000
 
-type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void
+type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 
 const routes: Record<string, RouteHandler> = {
   '/health': (_req, res) => health(res),
+  '/auth/login': login,
+  '/auth/signup': signup,
+}
+
+function cors(res: ServerResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
 const server = createServer((req, res) => {
+  cors(res)
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204)
+    res.end()
+    return
+  }
+
   const pathname = (new URL(req.url ?? '/', 'http://localhost').pathname).replace(/\/$/, '') || '/'
   const handler = routes[pathname]
   if (handler) {
-    handler(req, res)
+    void Promise.resolve(handler(req, res))
     return
   }
 

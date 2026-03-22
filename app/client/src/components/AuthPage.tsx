@@ -1,6 +1,7 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
 import { injectBaseStyles } from '@/Shared';
 import type { TypioUser } from '@/types';
+import { login as apiLogin, signup as apiSignup } from '@/api';
 
 type AuthPageProps = {
   onSuccess: (u: TypioUser) => void;
@@ -37,12 +38,25 @@ export default function AuthPage({ onSuccess, onBack }: AuthPageProps) {
       return;
     }
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    onSuccess({
-      username: form.username || form.email.split('@')[0] || 'user',
-      email: form.email,
-    });
+    setError('');
+    try {
+      const result =
+        mode === 'login'
+          ? await apiLogin(form.email, form.password)
+          : await apiSignup(form.username, form.email, form.password);
+      if ('error' in result) {
+        setError(result.error);
+        return;
+      }
+      onSuccess({
+        username: result.user.username,
+        email: result.user.email,
+      });
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
