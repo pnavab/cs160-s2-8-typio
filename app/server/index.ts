@@ -1,5 +1,7 @@
+import 'dotenv/config'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
+import { connectDb } from './db'
 import { health } from './endpoints/health'
 
 const fromEnv = process.env.PORT
@@ -40,6 +42,16 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   server.listen(port)
 })
 
-server.listen(port, () => {
-  console.log(`Server http://localhost:${port}`)
-})
+async function start() {
+  try {
+    await connectDb()
+  } catch (err) {
+    console.warn('MongoDB unavailable:', (err as Error).message)
+  }
+
+  server.listen(port, () => {
+    console.log(`Server http://localhost:${port}`)
+  })
+}
+
+void start()
