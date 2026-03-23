@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { injectBaseStyles } from '@/Shared';
 import type { TypioRoom, TypioUser } from '@/types';
+import {createRoom} from '@/api';
 
 const DIFFICULTIES = ['Beginner', 'Intermediate', 'Advanced'] as const;
 const MAX_PLAYERS = [2, 3, 4, 5, 6] as const;
@@ -27,10 +28,19 @@ export default function CreateRoom({ user: _user, onRoomCreated, onBack }: Creat
   }, []);
 
   const handleCreate = async () => {
+    if (!_user) return
     setCreating(true);
-    await new Promise((r) => setTimeout(r, 600));
+    const result = await createRoom({
+      hostId: _user.email,
+      username: _user.username,
+      maxPlayers
+    })
     setCreating(false);
-    onRoomCreated({ code: roomCode, difficulty, maxPlayers });
+    if ('error' in result) {
+      console.error(result.error)
+      return
+    }
+    onRoomCreated({ code: result.room.code, difficulty, maxPlayers });
   };
 
   const copyCode = () => {
