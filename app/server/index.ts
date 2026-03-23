@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
+import { createRoom, getRoom, listRooms } from './endpoints/rooms'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
@@ -15,6 +16,8 @@ const routes: Record<string, RouteHandler> = {
   '/health': (_req, res) => health(res),
   '/auth/login': login,
   '/auth/signup': signup,
+  '/api/rooms': createRoom,
+  '/api/rooms/list': listRooms,
 }
 
 function cors(res: ServerResponse) {
@@ -32,6 +35,11 @@ const server = createServer((req, res) => {
   }
 
   const pathname = (new URL(req.url ?? '/', 'http://localhost').pathname).replace(/\/$/, '') || '/'
+  const roomCodeMatch = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)$/)
+  if (roomCodeMatch) {
+    void Promise.resolve(getRoom(req, res, roomCodeMatch[1]))
+    return
+  }
   const handler = routes[pathname]
   if (handler) {
     void Promise.resolve(handler(req, res))
