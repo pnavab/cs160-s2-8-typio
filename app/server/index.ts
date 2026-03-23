@@ -4,6 +4,8 @@ import { createServer } from 'node:http'
 import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
+import { createRoom, validateRoom } from './endpoints/rooms'
+import { setupSocket } from './socket'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
@@ -15,6 +17,8 @@ const routes: Record<string, RouteHandler> = {
   '/health': (_req, res) => health(res),
   '/auth/login': login,
   '/auth/signup': signup,
+  '/rooms/create': createRoom,
+  '/rooms/validate': validateRoom,
 }
 
 function cors(res: ServerResponse) {
@@ -64,6 +68,8 @@ async function start() {
   } catch (err) {
     console.warn('MongoDB unavailable:', (err as Error).message)
   }
+
+  setupSocket(server)
 
   server.listen(port, () => {
     console.log(`Server http://localhost:${port}`)
