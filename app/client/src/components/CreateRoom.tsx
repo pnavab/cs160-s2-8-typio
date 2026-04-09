@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { injectBaseStyles } from '@/Shared';
+import { createRoom } from '@/api';
 import type { TypioRoom, TypioUser } from '@/types';
 
 const DIFFICULTIES = ['Beginner', 'Intermediate', 'Advanced'] as const;
@@ -15,22 +16,41 @@ type CreateRoomProps = {
   onBack: () => void;
 };
 
-export default function CreateRoom({ user: _user, onRoomCreated, onBack }: CreateRoomProps) {
+export default function CreateRoom({ user, onRoomCreated, onBack }: CreateRoomProps) {
   const [difficulty, setDifficulty] = useState<(typeof DIFFICULTIES)[number]>('Beginner');
   const [maxPlayers, setMaxPlayers] = useState<(typeof MAX_PLAYERS)[number]>(4);
   const [roomCode, setRoomCode] = useState(generateCode());
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     injectBaseStyles();
   }, []);
 
   const handleCreate = async () => {
+    if (!user?.username) return;
     setCreating(true);
-    await new Promise((r) => setTimeout(r, 600));
+    setError('');
+    const result = await createRoom(user.username, roomCode, difficulty, maxPlayers);
     setCreating(false);
-    onRoomCreated({ code: roomCode, difficulty, maxPlayers });
+    if ('error' in result) {
+      if (result.error === 'Room code already exists') {
+        setRoomCode(generateCode());
+        setError('That code was taken — a new one was generated. Try again.');
+      } else {
+        setError(result.error);
+      }
+      return;
+    }
+    onRoomCreated({
+      code: result.room.code,
+      host: result.room.host,
+      difficulty: result.room.difficulty,
+      maxPlayers: result.room.maxPlayers,
+      status: result.room.status,
+      players: result.room.players,
+    });
   };
 
   const copyCode = () => {
@@ -98,6 +118,22 @@ export default function CreateRoom({ user: _user, onRoomCreated, onBack }: Creat
           </button>
           <div className="code-hint">{copied ? '✓ Copied!' : 'Click to copy - Share this with friends'}</div>
         </div>
+
+        {error && (
+          <div
+            style={{
+              fontSize: 13,
+              color: 'var(--red)',
+              background: '#fff5f5',
+              border: '1px solid #ffc9c9',
+              borderRadius: 8,
+              padding: '8px 12px',
+              marginBottom: 16,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <hr className="t-divider" />
 

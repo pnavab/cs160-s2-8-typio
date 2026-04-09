@@ -1,59 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles } from '@/Shared';
+import { joinRoom } from '@/api';
 import type { TypioUser } from '@/types';
-
-const MOCK_STATS = {
-  racesPlayed: 47,
-  bestWpm: 112,
-  avgWpm: 84,
-  avgAccuracy: 96.2,
-  history: [
-    { date: 'Mar 14', wpm: 91, acc: 97 },
-    { date: 'Mar 13', wpm: 84, acc: 95 },
-    { date: 'Mar 12', wpm: 112, acc: 98 },
-    { date: 'Mar 11', wpm: 78, acc: 94 },
-    { date: 'Mar 10', wpm: 88, acc: 96 },
-    { date: 'Mar 9', wpm: 71, acc: 92 },
-    { date: 'Mar 8', wpm: 80, acc: 95 },
-  ],
-};
-
-function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div
-        style={{
-          flex: 1,
-          height: 6,
-          background: 'var(--bg)',
-          borderRadius: 3,
-          border: '1px solid var(--border)',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${(value / max) * 100}%`,
-            height: '100%',
-            background: color,
-            borderRadius: 3,
-          }}
-        />
-      </div>
-      <span
-        style={{
-          fontFamily: 'var(--mono)',
-          fontSize: 12,
-          color: 'var(--muted)',
-          width: 36,
-          textAlign: 'right',
-        }}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
 
 type DashboardProps = {
   user: TypioUser | null;
@@ -73,6 +21,7 @@ export default function Dashboard({
   const [showJoin, setShowJoin] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
+  const [joining, setJoining] = useState(false);
   const joinRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -86,35 +35,34 @@ export default function Dashboard({
     setTimeout(() => joinRef.current?.focus(), 80);
   };
 
-  const handleJoinSubmit = () => {
+  const handleJoinSubmit = async () => {
     const code = joinCode.trim().toUpperCase();
     if (code.length < 4) {
       setJoinError('Code must be at least 4 characters.');
+      return;
+    }
+    if (!user?.username) return;
+    setJoining(true);
+    setJoinError('');
+    const result = await joinRoom(user.username, code);
+    setJoining(false);
+    if ('error' in result) {
+      setJoinError(result.error);
       return;
     }
     setShowJoin(false);
     onJoinRoom(code);
   };
 
-  const stats = MOCK_STATS;
-  const maxWpm = Math.max(...stats.history.map((r) => r.wpm));
-
   return (
     <div className="t-page">
       <style>{`
-        .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
-        .stat-val { font-family: var(--mono); font-size: 36px; font-weight: 500; color: var(--accent); line-height: 1; margin-bottom: 4px; }
-        .stat-label { font-size: 13px; color: var(--muted); }
-        .history-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-        .history-row:last-child { border-bottom: none; }
-        .history-date { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 52px; flex-shrink: 0; }
-        .history-acc  { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 44px; text-align: right; }
         .welcome-row  { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
         .welcome-name { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
         .welcome-sub  { font-size: 14px; color: var(--muted); margin-top: 2px; }
         .action-row   { display: flex; gap: 10px; margin-bottom: 32px; }
-        @media (max-width: 600px) { .dash-grid { grid-template-columns: 1fr; } .action-row { flex-direction: column; } }
+        .empty-state  { text-align: center; padding: 48px 0; color: var(--muted); font-size: 14px; }
+        @media (max-width: 600px) { .action-row { flex-direction: column; } }
       `}</style>
 
       <nav className="t-nav">
@@ -151,33 +99,10 @@ export default function Dashboard({
           </button>
         </div>
 
-        <div className="dash-grid">
-          {[
-            { val: stats.racesPlayed, label: 'Races played' },
-            { val: stats.bestWpm, label: 'Best WPM' },
-            { val: stats.avgWpm, label: 'Average WPM' },
-            { val: `${stats.avgAccuracy}%`, label: 'Avg accuracy' },
-          ].map((s) => (
-            <div className="stat-card" key={s.label}>
-              <div className="stat-val">{s.val}</div>
-              <div className="stat-label">{s.label}</div>
-            </div>
-          ))}
-        </div>
-
         <div className="t-card">
-          <div className="t-label" style={{ marginBottom: 16 }}>
-            Recent races
+          <div className="empty-state">
+            No race history yet — create or join a room to get started!
           </div>
-          {stats.history.map((r) => (
-            <div className="history-row" key={r.date}>
-              <span className="history-date">{r.date}</span>
-              <div style={{ flex: 1 }}>
-                <MiniBar value={r.wpm} max={maxWpm + 10} color="var(--accent)" />
-              </div>
-              <span className="history-acc">{r.acc}%</span>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -234,7 +159,7 @@ export default function Dashboard({
                 setJoinCode(e.target.value.slice(0, 6));
                 setJoinError('');
               }}
-              onKeyDown={(e) => e.key === 'Enter' && handleJoinSubmit()}
+              onKeyDown={(e) => e.key === 'Enter' && void handleJoinSubmit()}
               placeholder="XXXXXX"
               maxLength={6}
               spellCheck={false}
@@ -252,10 +177,10 @@ export default function Dashboard({
                 type="button"
                 className="btn btn-primary"
                 style={{ flex: 1, justifyContent: 'center' }}
-                onClick={handleJoinSubmit}
-                disabled={joinCode.length < 4}
+                onClick={() => void handleJoinSubmit()}
+                disabled={joinCode.length < 4 || joining}
               >
-                Join
+                {joining ? 'Joining…' : 'Join'}
               </button>
             </div>
           </div>

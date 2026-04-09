@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
+import { roomHandler } from './endpoints/room'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
@@ -32,6 +33,12 @@ const server = createServer((req, res) => {
   }
 
   const pathname = (new URL(req.url ?? '/', 'http://localhost').pathname).replace(/\/$/, '') || '/'
+
+  if (pathname.startsWith('/room')) {
+    void Promise.resolve(roomHandler(req, res, pathname))
+    return
+  }
+
   const handler = routes[pathname]
   if (handler) {
     void Promise.resolve(handler(req, res))

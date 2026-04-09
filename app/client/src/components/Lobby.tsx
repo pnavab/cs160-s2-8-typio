@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
+import { getRoom, setReady, leaveRoom, startRace } from '@/api';
 import type { TypioRoom, TypioUser, LobbyPlayer } from '@/types';
-
-const MOCK_PLAYERS: LobbyPlayer[] = [
-  { id: '1', username: 'alex', ready: true },
-  { id: '2', username: 'sam', ready: false },
-];
 
 type LobbyProps = {
   room: TypioRoom | null;
@@ -15,7 +11,10 @@ type LobbyProps = {
 };
 
 export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) {
-  const [players, setPlayers] = useState<LobbyPlayer[]>(MOCK_PLAYERS);
+  const [players, setPlayers] = useState<LobbyPlayer[]>([]);
+  const [host, setHost] = useState<string>('');
+  const [maxPlayers, setMaxPlayers] = useState<number>(room?.maxPlayers ?? 4);
+  const [difficulty, setDifficulty] = useState<string>(room?.difficulty ?? 'Beginner');
   const [isReady, setIsReady] = useState(false);
   const [messages, setMessages] = useState<
     { id: number; from: string; text: string; system: boolean }[]
@@ -23,29 +22,96 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     {
       id: 0,
       from: 'typio',
-      text: `Room ${room?.code} created. Share the code to invite players!`,
+      text: `Room ${room?.code ?? ''} — waiting for players to join.`,
       system: true,
     },
   ]);
   const [chatInput, setChatInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [pollError, setPollError] = useState('');
+  const raceStartedRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     injectBaseStyles();
   }, []);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const allReady = players.length >= 2 && players.every((p) => p.ready);
-  const isHost = user?.username === players[0]?.username;
+  useEffect(() => {
+    if (!room?.code) return;
+    let cancelled = false;
 
-  const toggleReady = () => {
-    setIsReady((r) => !r);
+    const fetchRoom = async () => {
+      try {
+        const data = await getRoom(room.code);
+        if (cancelled) return;
+        if ('error' in data) {
+          onLeave();
+          return;
+        }
+        setPlayers(data.room.players);
+        setHost(data.room.host);
+        setMaxPlayers(data.room.maxPlayers);
+        setDifficulty(data.room.difficulty);
+
+        const me = data.room.players.find((p) => p.username === user?.username);
+        if (me) setIsReady(me.ready);
+
+        if (data.room.status === 'racing' && !raceStartedRef.current) {
+          raceStartedRef.current = true;
+          onRaceStart({
+            room: {
+              code: data.room.code,
+              host: data.room.host,
+              difficulty: data.room.difficulty,
+              maxPlayers: data.room.maxPlayers,
+              status: data.room.status,
+            },
+            players: data.room.players,
+          });
+        }
+      } catch {
+        if (!cancelled) setPollError('Connection issue — retrying…');
+      }
+    };
+
+    void fetchRoom();
+    const interval = setInterval(() => void fetchRoom(), 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [room?.code]);
+
+  const allReady = players.length >= 2 && players.every((p) => p.ready);
+  const isHost = user?.username === host;
+
+  const toggleReady = async () => {
+    const newReady = !isReady;
+    setIsReady(newReady);
     setPlayers((ps) =>
-      ps.map((p) => (p.username === user?.username ? { ...p, ready: !p.ready } : p)),
+      ps.map((p) => (p.username === user?.username ? { ...p, ready: newReady } : p)),
     );
+    if (room?.code && user?.username) {
+      await setReady(room.code, user.username, newReady);
+    }
+  };
+
+  const handleStart = async () => {
+    if (!room?.code || !user?.username || raceStartedRef.current) return;
+    raceStartedRef.current = true;
+    await startRace(room.code, user.username);
+    onRaceStart({ room: { ...room, difficulty, maxPlayers }, players });
+  };
+
+  const handleLeave = async () => {
+    if (room?.code && user?.username) {
+      await leaveRoom(room.code, user.username);
+    }
+    onLeave();
   };
 
   const sendChat = () => {
@@ -64,10 +130,6 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     void navigator.clipboard.writeText(room?.code || '');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleStart = () => {
-    onRaceStart({ room, players });
   };
 
   return (
@@ -114,17 +176,31 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
           <button type="button" className="code-pill" onClick={copyCode}>
             {room?.code || 'XXXXXX'} {copied ? '✓' : '⎘'}
           </button>
-          <button type="button" className="btn btn-outline btn-sm" onClick={onLeave}>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => void handleLeave()}>
             Leave
           </button>
         </div>
       </nav>
 
+      {pollError && (
+        <div
+          style={{
+            background: '#fff5f5',
+            color: 'var(--red)',
+            textAlign: 'center',
+            padding: '8px',
+            fontSize: 13,
+          }}
+        >
+          {pollError}
+        </div>
+      )}
+
       <div className="t-main-lg">
         <div style={{ marginBottom: 20 }}>
           <div className="t-section-title">Lobby</div>
           <div className="t-section-sub">
-            {room?.difficulty || 'Beginner'} · Up to {room?.maxPlayers || 4} players
+            {difficulty} · Up to {maxPlayers} players
           </div>
         </div>
 
@@ -133,6 +209,11 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
             <div className="t-label" style={{ marginBottom: 12 }}>
               Players ({players.length})
             </div>
+            {players.length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic' }}>
+                Loading…
+              </div>
+            )}
             {players.map((p, i) => (
               <div className="player-entry" key={p.id}>
                 <div
@@ -143,7 +224,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                   {p.username}
                   {p.username === user?.username ? ' (you)' : ''}
                 </span>
-                {i === 0 && <span className="player-host-tag">host</span>}
+                {p.username === host && <span className="player-host-tag">host</span>}
                 <div
                   className="badge"
                   style={{
@@ -160,16 +241,14 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                 </div>
               </div>
             ))}
-            {Array.from({ length: Math.max(0, (room?.maxPlayers || 4) - players.length) }).map(
-              (_, i) => (
-                <div className="player-entry" key={`empty-${i}`} style={{ opacity: 0.35 }}>
-                  <div className="player-dot" style={{ background: 'var(--border)' }} />
-                  <span className="player-entry-name" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
-                    waiting…
-                  </span>
-                </div>
-              ),
-            )}
+            {Array.from({ length: Math.max(0, maxPlayers - players.length) }).map((_, i) => (
+              <div className="player-entry" key={`empty-${i}`} style={{ opacity: 0.35 }}>
+                <div className="player-dot" style={{ background: 'var(--border)' }} />
+                <span className="player-entry-name" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
+                  waiting…
+                </span>
+              </div>
+            ))}
           </div>
 
           <div className="lobby-panel">
@@ -179,8 +258,8 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
               </div>
             </div>
             <div className="settings-row" style={{ marginBottom: 24 }}>
-              <span className="badge badge-blue">{room?.difficulty || 'Beginner'}</span>
-              <span className="badge badge-gray">{room?.maxPlayers || 4} max players</span>
+              <span className="badge badge-blue">{difficulty}</span>
+              <span className="badge badge-gray">{maxPlayers} max players</span>
             </div>
 
             <hr className="t-divider" style={{ marginTop: 0 }} />
@@ -190,7 +269,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                 type="button"
                 className={`btn btn-lg ${isReady ? 'btn-outline' : 'btn-success'}`}
                 style={{ justifyContent: 'center' }}
-                onClick={toggleReady}
+                onClick={() => void toggleReady()}
               >
                 {isReady ? '✅ Ready — click to unready' : 'Mark as Ready'}
               </button>
@@ -200,7 +279,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                   type="button"
                   className="btn btn-primary btn-lg"
                   style={{ justifyContent: 'center' }}
-                  onClick={handleStart}
+                  onClick={() => void handleStart()}
                   disabled={!allReady}
                 >
                   {allReady
@@ -210,7 +289,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
               )}
             </div>
 
-            {!isHost && !allReady && (
+            {!isHost && !allReady && players.length > 0 && (
               <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12 }}>
                 Waiting for the host to start the race once everyone is ready.
               </p>

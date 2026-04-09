@@ -11,8 +11,10 @@ export type LobbyPlayer = {
 
 export type TypioRoom = {
   code: string;
+  host?: string;
   difficulty?: string;
   maxPlayers?: number;
+  status?: string;
   players?: LobbyPlayer[];
 };
 
