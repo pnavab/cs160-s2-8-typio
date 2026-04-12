@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
 import { getRoom, setReady, leaveRoom, startRace } from '@/api';
+import { connectSocket, getSocket } from '@/socket';
 import type { TypioRoom, TypioUser, LobbyPlayer } from '@/types';
 
 type LobbyProps = {
@@ -39,6 +40,21 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!room?.code || !user?.username) return;
+    const socket = connectSocket();
+    socket.emit('join-room', { roomCode: room.code, username: user.username });
+
+    const handleChatMessage = (msg: { id: number; from: string; text: string }) => {
+      setMessages((prev) => [...prev, { ...msg, system: false }]);
+    };
+    socket.on('chat-message', handleChatMessage);
+
+    return () => {
+      socket.off('chat-message', handleChatMessage);
+    };
+  }, [room?.code, user?.username]);
 
   useEffect(() => {
     if (!room?.code) return;
@@ -104,6 +120,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     if (!room?.code || !user?.username || raceStartedRef.current) return;
     raceStartedRef.current = true;
     await startRace(room.code, user.username);
+    getSocket().emit('race-started', { roomCode: room.code });
     onRaceStart({ room: { ...room, difficulty, maxPlayers }, players });
   };
 
@@ -115,14 +132,12 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
   };
 
   const sendChat = () => {
-    if (!chatInput.trim()) return;
-    const msg = {
-      id: Date.now(),
-      from: user?.username || 'you',
+    if (!chatInput.trim() || !room?.code || !user?.username) return;
+    getSocket().emit('chat-message', {
+      roomCode: room.code,
+      from: user.username,
       text: chatInput.trim(),
-      system: false,
-    };
-    setMessages((m) => [...m, msg]);
+    });
     setChatInput('');
   };
 

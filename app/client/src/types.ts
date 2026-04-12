@@ -23,3 +23,10 @@ export type RaceFinishResult = {
   accuracy: number;
   placement: number;
 };
+
+export type PlayerResult = {
+  username: string;
+  wpm: number;
+  accuracy: number;
+  placement: number;
+};

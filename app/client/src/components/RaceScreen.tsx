@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
+import { connectSocket, getSocket } from '@/socket';
 import type { TypioRoom, TypioUser, LobbyPlayer, RaceFinishResult } from '@/types';
 
 const PASSAGES: Record<string, string> = {
@@ -38,7 +39,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
   const [finished, setFinished] = useState(false);
 
   const [opponents, setOpponents] = useState<RaceOpponent[]>(() =>
-    (initialPlayers || [{ username: 'alex' }, { username: 'sam' }])
+    (initialPlayers || [])
       .filter((p) => p.username !== user?.username)
       .map((p, i) => ({
         username: p.username,
@@ -50,6 +51,34 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
 
   const startTimeRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastEmitRef = useRef(0);
+  const finishedEmittedRef = useRef(false);
+
+  useEffect(() => {
+    if (!room?.code || !user?.username) return;
+    const socket = connectSocket();
+    socket.emit('join-room', { roomCode: room.code, username: user.username });
+
+    const handleProgress = ({ username, pct, wpm: opWpm }: { username: string; pct: number; wpm: number }) => {
+      setOpponents((ops) =>
+        ops.map((op) => (op.username === username ? { ...op, pct, wpm: opWpm } : op)),
+      );
+    };
+
+    const handleFinished = ({ username }: { username: string; wpm: number; accuracy: number; placement: number }) => {
+      setOpponents((ops) =>
+        ops.map((op) => (op.username === username ? { ...op, pct: 100 } : op)),
+      );
+    };
+
+    socket.on('player-progress', handleProgress);
+    socket.on('player-finished', handleFinished);
+
+    return () => {
+      socket.off('player-progress', handleProgress);
+      socket.off('player-finished', handleFinished);
+    };
+  }, [room?.code, user?.username]);
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -60,21 +89,6 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [countdown]);
-
-  useEffect(() => {
-    if (!racing || finished) return;
-    const t = setInterval(() => {
-      setOpponents((ops) =>
-        ops.map((op) => {
-          const speed = 0.4 + Math.random() * 0.8;
-          const newPct = Math.min(100, op.pct + speed);
-          const newWpm = Math.round(40 + Math.random() * 60);
-          return { ...op, pct: newPct, wpm: newWpm };
-        }),
-      );
-    }, 300);
-    return () => clearInterval(t);
-  }, [racing, finished]);
 
   useEffect(() => {
     if (!startTimeRef.current || typed.length === 0) return;
@@ -98,7 +112,22 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
       for (let i = 0; i < val.length; i++) {
         if (val[i] !== passage[i]) errs++;
       }
-      setAccuracy(val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100);
+      const currentAcc = val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100;
+      setAccuracy(currentAcc);
+
+      const now = Date.now();
+      if (room?.code && user?.username && now - lastEmitRef.current > 200) {
+        lastEmitRef.current = now;
+        const elapsed = startTimeRef.current ? (now - startTimeRef.current) / 60000 : 0;
+        const wordsDone = val.trim().split(/\s+/).filter(Boolean).length;
+        const currentWpm = elapsed > 0 ? Math.round(wordsDone / elapsed) : 0;
+        getSocket().emit('progress-update', {
+          roomCode: room.code,
+          username: user.username,
+          pct: (val.length / passage.length) * 100,
+          wpm: currentWpm,
+        });
+      }
 
       if (val === passage) {
         setFinished(true);
@@ -106,10 +135,21 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
         const elapsed = (Date.now() - (startTimeRef.current ?? Date.now())) / 60000;
         const finalWpm = elapsed > 0 ? Math.round(words.length / elapsed) : 0;
         const finalAcc = val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100;
+
+        if (!finishedEmittedRef.current && room?.code && user?.username) {
+          finishedEmittedRef.current = true;
+          getSocket().emit('player-finished', {
+            roomCode: room.code,
+            username: user.username,
+            wpm: finalWpm,
+            accuracy: finalAcc,
+          });
+        }
+
         setTimeout(() => onFinish({ wpm: finalWpm, accuracy: finalAcc, placement: 1 }), 800);
       }
     },
-    [racing, finished, passage, words.length, onFinish],
+    [racing, finished, passage, words.length, onFinish, room?.code, user?.username],
   );
 
   useEffect(() => {
@@ -236,7 +276,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
 
       <div className="t-main">
         {finished && (
-          <div className="finished-banner">🎉 You finished! Calculating results…</div>
+          <div className="finished-banner">🎉 You finished! Waiting for results…</div>
         )}
 
         <div className="passage-box" onClick={() => inputRef.current?.focus()} role="presentation">

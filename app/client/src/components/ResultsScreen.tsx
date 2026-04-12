@@ -1,16 +1,9 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
-import type { TypioRoom, TypioUser, RaceFinishResult } from '@/types';
-
-const MOCK_RESULTS = [
-  { username: 'alex', wpm: 94, accuracy: 97, placement: 1 },
-  { username: 'you', wpm: 84, accuracy: 96, placement: 2 },
-  { username: 'sam', wpm: 67, accuracy: 92, placement: 3 },
-];
+import { connectSocket } from '@/socket';
+import type { TypioRoom, TypioUser, RaceFinishResult, PlayerResult } from '@/types';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-
-type Row = (typeof MOCK_RESULTS)[number];
 
 type ResultsScreenProps = {
   room: TypioRoom | null;
@@ -27,17 +20,59 @@ export default function ResultsScreen({
   onPlayAgain,
   onLeave,
 }: ResultsScreenProps) {
+  const meName = user?.username || 'you';
+
+  const [results, setResults] = useState<PlayerResult[]>(() => {
+    if (myResult && meName) {
+      return [{ username: meName, wpm: myResult.wpm, accuracy: myResult.accuracy, placement: 1 }];
+    }
+    return [];
+  });
+
   useEffect(() => {
     injectBaseStyles();
   }, []);
 
-  const meName = user?.username || 'you';
+  useEffect(() => {
+    if (!room?.code) return;
+    const socket = connectSocket();
+    socket.emit('join-room', { roomCode: room.code, username: meName });
+    socket.emit('request-results', { roomCode: room.code });
 
-  const results: Row[] = myResult
-    ? MOCK_RESULTS.map((r) => (r.username === meName ? { ...r, ...myResult } : r))
-        .sort((a, b) => b.wpm - a.wpm)
-        .map((r, i) => ({ ...r, placement: i + 1 }))
-    : MOCK_RESULTS;
+    const handleFinished = (result: PlayerResult) => {
+      setResults((prev) => {
+        if (prev.find((r) => r.username === result.username)) return prev;
+        return [...prev, result];
+      });
+    };
+
+    const handleAllResults = ({ results: allResults }: { results: PlayerResult[] }) => {
+      setResults((prev) => {
+        const merged = [...allResults];
+        for (const local of prev) {
+          if (!merged.find((r) => r.username === local.username)) {
+            merged.push(local);
+          }
+        }
+        return merged;
+      });
+    };
+
+    socket.on('player-finished', handleFinished);
+    socket.on('race-results', handleAllResults);
+
+    return () => {
+      socket.off('player-finished', handleFinished);
+      socket.off('race-results', handleAllResults);
+    };
+  }, [room?.code, meName]);
+
+  const sorted = [...results]
+    .sort((a, b) => b.wpm - a.wpm)
+    .map((r, i) => ({ ...r, placement: i + 1 }));
+
+  const totalPlayers = room?.players?.length ?? sorted.length;
+  const waitingCount = totalPlayers - sorted.length;
 
   return (
     <div className="t-page">
@@ -73,6 +108,17 @@ export default function ResultsScreen({
         .lb-acc   { font-family: var(--mono); font-size: 13px; color: var(--muted); text-align: right; }
         .lb-header { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
 
+        .waiting-banner {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 12px 20px;
+          text-align: center;
+          font-size: 13px;
+          color: var(--muted);
+          margin-bottom: 16px;
+        }
+
         .my-summary { display: flex; gap: 12px; margin-bottom: 28px; }
         .summary-stat { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
         .summary-val  { font-family: var(--mono); font-size: 24px; font-weight: 500; color: var(--accent); }
@@ -103,36 +149,40 @@ export default function ResultsScreen({
           </div>
         </div>
 
-        <div className="podium-row">
-          {results.slice(0, 3).map((r, i) => (
-            <div
-              key={r.username}
-              className={`podium-card${r.username === meName ? ' me' : ''}`}
-            >
-              <div className="podium-medal">{MEDALS[i] || `#${i + 1}`}</div>
-              <div className="podium-name">
-                {r.username}
-                {r.username === meName ? ' (you)' : ''}
+        {waitingCount > 0 && (
+          <div className="waiting-banner">
+            ⏳ Waiting for {waitingCount} more player{waitingCount > 1 ? 's' : ''} to finish…
+          </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div className="podium-row">
+            {sorted.slice(0, 3).map((r, i) => (
+              <div
+                key={r.username}
+                className={`podium-card${r.username === meName ? ' me' : ''}`}
+              >
+                <div className="podium-medal">{MEDALS[i] ?? `#${i + 1}`}</div>
+                <div className="podium-name">
+                  {r.username}
+                  {r.username === meName ? ' (you)' : ''}
+                </div>
+                <div className="podium-wpm">{r.wpm}</div>
+                <div className="podium-wpm-label">WPM</div>
+                <div className="podium-acc">{r.accuracy}% accuracy</div>
               </div>
-              <div className="podium-wpm">{r.wpm}</div>
-              <div className="podium-wpm-label">WPM</div>
-              <div className="podium-acc">{r.accuracy}% accuracy</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <div className="leaderboard">
           <div className="lb-row">
             <div className="lb-rank lb-header">#</div>
             <div className="lb-header">Player</div>
-            <div className="lb-header" style={{ textAlign: 'right' }}>
-              WPM
-            </div>
-            <div className="lb-header" style={{ textAlign: 'right' }}>
-              Accuracy
-            </div>
+            <div className="lb-header" style={{ textAlign: 'right' }}>WPM</div>
+            <div className="lb-header" style={{ textAlign: 'right' }}>Accuracy</div>
           </div>
-          {results.map((r, i) => (
+          {sorted.map((r, i) => (
             <div
               key={r.username}
               className={`lb-row${r.username === meName ? ' me-row' : ''}`}
@@ -152,6 +202,13 @@ export default function ResultsScreen({
               <div className="lb-acc">{r.accuracy}%</div>
             </div>
           ))}
+          {sorted.length === 0 && (
+            <div className="lb-row">
+              <div style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: 13 }}>
+                No results yet…
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="action-row">

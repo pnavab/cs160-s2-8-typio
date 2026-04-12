@@ -5,6 +5,7 @@ import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
 import { roomHandler } from './endpoints/room'
+import { setupSocketIO } from './socket'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
@@ -48,6 +49,8 @@ const server = createServer((req, res) => {
   res.writeHead(404, { 'Content-Type': 'text/plain' })
   res.end('Not found')
 })
+
+setupSocketIO(server)
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code !== 'EADDRINUSE') throw err
