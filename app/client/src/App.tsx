@@ -7,6 +7,8 @@ import Lobby from '@/components/Lobby';
 import RaceScreen from '@/components/RaceScreen';
 import ResultsScreen from '@/components/ResultsScreen';
 import ProfilePage from '@/components/ProfilePage';
+import { guestJoin, resetRoom } from '@/api';
+import { getSocket } from '@/socket';
 import type { TypioRoom, TypioUser, RaceFinishResult, LobbyPlayer } from '@/types';
 
 type Page =
@@ -41,6 +43,9 @@ export default function App() {
     setPage('landing');
   };
 
+  const isGuest = user?.username.startsWith('Guest ') ?? false;
+  const homePage = isGuest ? 'landing' : (user ? 'dashboard' : 'landing');
+
   const handleRoomCreated = (r: TypioRoom) => {
     setRoom(r);
     setPage('lobby');
@@ -48,6 +53,15 @@ export default function App() {
   const handleJoinRoom = (code: string) => {
     setRoom({ code });
     setPage('lobby');
+  };
+
+  const handleGuestJoin = async (code: string): Promise<{ error?: string }> => {
+    const res = await guestJoin(code);
+    if ('error' in res) return { error: res.error };
+    setUser({ username: res.username });
+    setRoom({ code });
+    setPage('lobby');
+    return {};
   };
 
   const handleRaceStart = ({
@@ -69,7 +83,15 @@ export default function App() {
     setMyResult(result);
     setPage('results');
   };
-  const handlePlayAgain = () => {
+  const handlePlayAgain = async () => {
+    if (room?.code) {
+      // Reset room to 'waiting' with all ready flags cleared (idempotent — only
+      // acts when room is still 'racing', so concurrent calls from multiple
+      // players are safe).
+      await resetRoom(room.code);
+      // Notify everyone still on the results screen to return to the lobby.
+      getSocket().emit('trigger-play-again', { roomCode: room.code });
+    }
     setMyResult(null);
     setPage('lobby');
   };
@@ -84,6 +106,7 @@ export default function App() {
             else setPage('auth');
           }}
           onLogin={() => setPage('auth')}
+          onGuestJoin={handleGuestJoin}
         />
       );
 
@@ -118,7 +141,7 @@ export default function App() {
           room={room}
           user={user}
           onRaceStart={handleRaceStart}
-          onLeave={() => setPage(user ? 'dashboard' : 'landing')}
+          onLeave={() => setPage(homePage)}
         />
       );
 
@@ -138,8 +161,8 @@ export default function App() {
           room={room}
           user={user}
           myResult={myResult}
-          onPlayAgain={handlePlayAgain}
-          onLeave={() => setPage(user ? 'dashboard' : 'landing')}
+          onPlayAgain={() => void handlePlayAgain()}
+          onLeave={() => setPage(homePage)}
         />
       );
 
@@ -149,6 +172,7 @@ export default function App() {
           user={user}
           onBack={() => setPage('dashboard')}
           onLogout={handleLogout}
+          onUpdate={(updated) => setUser(updated)}
         />
       );
 

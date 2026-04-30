@@ -1,46 +1,26 @@
 import { useState, useEffect } from 'react';
 import { injectBaseStyles } from '@/Shared';
-import type { TypioUser } from '@/types';
-
-const MOCK_PROFILE = {
-  username: 'you',
-  email: 'you@example.com',
-  joinedDate: 'January 2026',
-  racesPlayed: 47,
-  bestWpm: 112,
-  avgWpm: 84,
-  avgAccuracy: 96.2,
-  history: [
-    { date: 'Mar 14', wpm: 91, acc: 97, placement: 2 },
-    { date: 'Mar 13', wpm: 84, acc: 95, placement: 3 },
-    { date: 'Mar 12', wpm: 112, acc: 98, placement: 1 },
-    { date: 'Mar 11', wpm: 78, acc: 94, placement: 2 },
-    { date: 'Mar 10', wpm: 88, acc: 96, placement: 1 },
-    { date: 'Mar 9', wpm: 71, acc: 92, placement: 3 },
-    { date: 'Mar 8', wpm: 80, acc: 95, placement: 2 },
-    { date: 'Mar 7', wpm: 75, acc: 93, placement: 2 },
-    { date: 'Mar 6', wpm: 68, acc: 91, placement: 4 },
-    { date: 'Mar 5', wpm: 82, acc: 96, placement: 1 },
-  ],
-};
+import { getProfile, updateProfile, deleteAccount } from '@/api';
+import type { TypioUser, UserProfile, HistoryEntry } from '@/types';
 
 const MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const TABS = ['Overview', 'History', 'Settings'] as const;
 
-function WpmChart({ history }: { history: typeof MOCK_PROFILE.history }) {
-  const max = Math.max(...history.map((r) => r.wpm)) + 10;
+function WpmChart({ history }: { history: HistoryEntry[] }) {
+  if (history.length === 0) return null;
+  const reversed = [...history].reverse();
+  const max = Math.max(...reversed.map((r) => r.wpm)) + 10;
   const W = 560;
   const H = 100;
   const PAD = 16;
-  const n = Math.max(1, history.length - 1);
+  const n = Math.max(1, reversed.length - 1);
   const step = (W - PAD * 2) / n;
   const toY = (v: number) => H - PAD - (v / max) * (H - PAD * 2);
-  const pts = history.map((r, i) => [PAD + i * step, toY(r.wpm)] as const);
+  const pts = reversed.map((r, i) => [PAD + i * step, toY(r.wpm)] as const);
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
   const last = pts[pts.length - 1];
   const first = pts[0];
-  const area =
-    last && first ? `${path} L${last[0]},${H - PAD} L${first[0]},${H - PAD} Z` : '';
+  const area = last && first ? `${path} L${last[0]},${H - PAD} L${first[0]},${H - PAD} Z` : '';
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 100, display: 'block' }}>
@@ -51,14 +31,7 @@ function WpmChart({ history }: { history: typeof MOCK_PROFILE.history }) {
         </linearGradient>
       </defs>
       {area && <path d={area} fill="url(#wpmGrad)" />}
-      <path
-        d={path}
-        fill="none"
-        stroke="#3b5bdb"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d={path} fill="none" stroke="#3b5bdb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       {pts.map((p, i) => (
         <circle key={i} cx={p[0]} cy={p[1]} r="3" fill="#3b5bdb" />
       ))}
@@ -70,25 +43,102 @@ type ProfilePageProps = {
   user: TypioUser | null;
   onBack: () => void;
   onLogout: () => void;
+  onUpdate: (updated: TypioUser) => void;
 };
 
-export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps) {
+const EMPTY_PROFILE: UserProfile = {
+  racesPlayed: 0,
+  bestWpm: 0,
+  avgWpm: 0,
+  avgAccuracy: 0,
+  joinedDate: null,
+  history: [],
+};
+
+export default function ProfilePage({ user, onBack, onLogout, onUpdate }: ProfilePageProps) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
-  const [saved, setSaved] = useState(false);
+  const [profile, setProfile] = useState<UserProfile>(EMPTY_PROFILE);
+  const [loading, setLoading] = useState(true);
+
+  // Settings form state
   const [form, setForm] = useState({
-    username: user?.username || MOCK_PROFILE.username,
-    email: user?.email || MOCK_PROFILE.email,
+    username: user?.username ?? '',
+    email: user?.email ?? '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
   });
-  const p = MOCK_PROFILE;
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Delete-account confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     injectBaseStyles();
   }, []);
 
+  useEffect(() => {
+    if (!user?.username) return;
+    setLoading(true);
+    void getProfile(user.username).then((res) => {
+      if ('profile' in res) setProfile(res.profile);
+      setLoading(false);
+    });
+  }, [user?.username]);
+
   const handleSave = async () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaveError('');
+    setSaveSuccess('');
+    if (!user?.username) return;
+
+    if (!form.currentPassword) {
+      setSaveError('Enter your current password to save changes.');
+      return;
+    }
+    if (form.newPassword && form.newPassword !== form.confirmPassword) {
+      setSaveError('New passwords do not match.');
+      return;
+    }
+
+    setSaving(true);
+    const res = await updateProfile(user.username, form.currentPassword, {
+      username: form.username !== user.username ? form.username : undefined,
+      email: form.email !== user.email ? form.email : undefined,
+      newPassword: form.newPassword || undefined,
+    });
+    setSaving(false);
+
+    if ('error' in res) {
+      setSaveError(res.error);
+      return;
+    }
+
+    setSaveSuccess('Changes saved!');
+    setForm((f) => ({ ...f, currentPassword: '', newPassword: '', confirmPassword: '' }));
+    onUpdate({ username: res.user.username, email: res.user.email });
+    setTimeout(() => setSaveSuccess(''), 3000);
   };
+
+  const handleDelete = async () => {
+    if (!user?.username || !deletePassword) return;
+    setDeleteError('');
+    setDeleting(true);
+    const res = await deleteAccount(user.username, deletePassword);
+    setDeleting(false);
+    if ('error' in res) {
+      setDeleteError(res.error);
+      return;
+    }
+    onLogout();
+  };
+
+  const displayName = user?.username ?? '?';
+  const maxHistoryWpm = profile.history.length > 0 ? Math.max(...profile.history.map((r) => r.wpm)) : 1;
 
   return (
     <div className="t-page">
@@ -107,10 +157,9 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
         .chart-dates { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 8px; }
 
         .hist-table { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-        .hist-row { display: grid; grid-template-columns: 80px 1fr 60px 40px; gap: 12px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .hist-row { display: grid; grid-template-columns: 80px 1fr 70px 60px 40px; gap: 12px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
         .hist-row:last-child { border-bottom: none; }
         .hist-row.header { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
-        .hist-bar-wrap { flex: 1; }
         .hist-bar-track { height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
         .hist-bar-fill  { height: 100%; border-radius: 3px; background: var(--accent); }
 
@@ -121,46 +170,36 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
         .danger-title { font-size: 14px; font-weight: 600; color: var(--red); margin-bottom: 8px; }
         .danger-sub   { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
 
-        @media (max-width: 640px) { .stat-row { grid-template-columns: 1fr 1fr; } .hist-row { grid-template-columns: 60px 1fr 48px 36px; } }
+        .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 14px; }
+
+        @media (max-width: 640px) { .stat-row { grid-template-columns: 1fr 1fr; } .hist-row { grid-template-columns: 60px 1fr 52px 48px 36px; } }
       `}</style>
 
       <nav className="t-nav">
-        <div className="t-logo">
-          typi<em>o</em>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="btn btn-outline btn-sm" onClick={onBack}>
-            ← Dashboard
-          </button>
-        </div>
+        <div className="t-logo">typi<em>o</em></div>
+        <button type="button" className="btn btn-outline btn-sm" onClick={onBack}>
+          ← Dashboard
+        </button>
       </nav>
 
       <div className="t-main">
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28 }}>
           <div
             style={{
-              width: 52,
-              height: 52,
-              borderRadius: '50%',
-              background: 'var(--accent-light)',
-              border: '2px solid var(--accent)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontFamily: 'var(--mono)',
-              fontSize: 22,
-              fontWeight: 500,
-              color: 'var(--accent)',
-              flexShrink: 0,
+              width: 52, height: 52, borderRadius: '50%',
+              background: 'var(--accent-light)', border: '2px solid var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 500,
+              color: 'var(--accent)', flexShrink: 0,
             }}
           >
-            {(user?.username || p.username).slice(0, 1).toUpperCase() || '?'}
+            {displayName.slice(0, 1).toUpperCase()}
           </div>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: -0.5 }}>
-              {user?.username || p.username}
+            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: -0.5 }}>{displayName}</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {loading ? 'Loading…' : profile.joinedDate ? `Joined ${profile.joinedDate}` : 'Welcome!'}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Joined {p.joinedDate}</div>
           </div>
         </div>
 
@@ -181,10 +220,10 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
           <>
             <div className="stat-row">
               {[
-                { val: p.racesPlayed, lbl: 'Races played' },
-                { val: p.bestWpm, lbl: 'Best WPM' },
-                { val: p.avgWpm, lbl: 'Avg WPM' },
-                { val: `${p.avgAccuracy}%`, lbl: 'Avg accuracy' },
+                { val: loading ? '…' : profile.racesPlayed, lbl: 'Races played' },
+                { val: loading ? '…' : profile.bestWpm, lbl: 'Best WPM' },
+                { val: loading ? '…' : profile.avgWpm, lbl: 'Avg WPM' },
+                { val: loading ? '…' : `${profile.avgAccuracy}%`, lbl: 'Avg accuracy' },
               ].map((s) => (
                 <div className="stat-box" key={s.lbl}>
                   <div className="stat-val">{s.val}</div>
@@ -193,62 +232,64 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
               ))}
             </div>
 
-            <div className="chart-card">
-              <div className="t-label" style={{ marginBottom: 12 }}>
-                WPM over time
+            {!loading && profile.history.length > 0 ? (
+              <div className="chart-card">
+                <div className="t-label" style={{ marginBottom: 12 }}>WPM over time</div>
+                <WpmChart history={profile.history} />
+                <div className="chart-dates">
+                  <span>{profile.history[profile.history.length - 1]!.date}</span>
+                  <span>{profile.history[0]!.date}</span>
+                </div>
               </div>
-              <WpmChart history={[...p.history].reverse()} />
-              <div className="chart-dates">
-                <span>{p.history[p.history.length - 1]!.date}</span>
-                <span>{p.history[0]!.date}</span>
-              </div>
-            </div>
+            ) : !loading ? (
+              <div className="empty-state">No races played yet. Jump in and start racing!</div>
+            ) : null}
           </>
         )}
 
         {tab === 'History' && (
-          <div className="hist-table">
-            <div className="hist-row header">
-              <span>Date</span>
-              <span>WPM</span>
-              <span>Accuracy</span>
-              <span>Place</span>
-            </div>
-            {p.history.map((r, i) => {
-              const maxWpm = Math.max(...p.history.map((x) => x.wpm));
-              return (
-                <div className="hist-row" key={i}>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
-                    {r.date}
-                  </span>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="hist-bar-track" style={{ flex: 1 }}>
-                        <div
-                          className="hist-bar-fill"
-                          style={{ width: `${(r.wpm / maxWpm) * 100}%` }}
-                        />
-                      </div>
-                      <span
-                        style={{
-                          fontFamily: 'var(--mono)',
-                          fontSize: 12,
-                          color: 'var(--accent)',
-                          width: 36,
-                        }}
-                      >
-                        {r.wpm}
-                      </span>
-                    </div>
-                  </div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>
-                    {r.acc}%
-                  </span>
-                  <span style={{ fontSize: 16 }}>{MEDALS[r.placement] || `#${r.placement}`}</span>
+          <>
+            {!loading && profile.history.length === 0 ? (
+              <div className="empty-state">No race history yet.</div>
+            ) : (
+              <div className="hist-table">
+                <div className="hist-row header">
+                  <span>Date</span>
+                  <span>WPM</span>
+                  <span>Accuracy</span>
+                  <span>Difficulty</span>
+                  <span>Place</span>
                 </div>
-              );
-            })}
-          </div>
+                {profile.history.map((r, i) => (
+                  <div className="hist-row" key={i}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
+                      {r.date}
+                    </span>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="hist-bar-track" style={{ flex: 1 }}>
+                          <div
+                            className="hist-bar-fill"
+                            style={{ width: `${(r.wpm / maxHistoryWpm) * 100}%` }}
+                          />
+                        </div>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', width: 36 }}>
+                          {r.wpm}
+                        </span>
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>
+                      {r.acc}%
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      {r.difficulty}
+                    </span>
+                    <span style={{ fontSize: 16 }}>{MEDALS[r.placement] ?? `#${r.placement}`}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {tab === 'Settings' && (
@@ -259,7 +300,7 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
                 id="settings-username"
                 className="t-input"
                 value={form.username}
-                onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+                onChange={(e) => { setSaveError(''); setForm((f) => ({ ...f, username: e.target.value })); }}
               />
             </div>
             <div className="settings-field">
@@ -269,37 +310,137 @@ export default function ProfilePage({ user, onBack, onLogout }: ProfilePageProps
                 className="t-input"
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                onChange={(e) => { setSaveError(''); setForm((f) => ({ ...f, email: e.target.value })); }}
               />
             </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '4px 0 20px' }} />
+
             <div className="settings-field">
-              <label htmlFor="settings-password">New password</label>
+              <label htmlFor="settings-new-password">New password</label>
               <input
-                id="settings-password"
+                id="settings-new-password"
                 className="t-input"
                 type="password"
                 placeholder="Leave blank to keep current"
+                value={form.newPassword}
+                onChange={(e) => { setSaveError(''); setForm((f) => ({ ...f, newPassword: e.target.value })); }}
               />
             </div>
+            {form.newPassword && (
+              <div className="settings-field">
+                <label htmlFor="settings-confirm-password">Confirm new password</label>
+                <input
+                  id="settings-confirm-password"
+                  className="t-input"
+                  type="password"
+                  placeholder="Re-enter new password"
+                  value={form.confirmPassword}
+                  onChange={(e) => { setSaveError(''); setForm((f) => ({ ...f, confirmPassword: e.target.value })); }}
+                />
+              </div>
+            )}
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '4px 0 20px' }} />
+
+            <div className="settings-field">
+              <label htmlFor="settings-current-password">Current password <span style={{ color: 'var(--red)' }}>*</span></label>
+              <input
+                id="settings-current-password"
+                className="t-input"
+                type="password"
+                placeholder="Required to save any changes"
+                value={form.currentPassword}
+                onChange={(e) => { setSaveError(''); setForm((f) => ({ ...f, currentPassword: e.target.value })); }}
+              />
+            </div>
+
+            {saveError && (
+              <div style={{ fontSize: 13, color: 'var(--red)', background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                {saveError}
+              </div>
+            )}
+            {saveSuccess && (
+              <div style={{ fontSize: 13, color: 'var(--green)', background: 'var(--green-light)', border: '1px solid var(--green)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                {saveSuccess}
+              </div>
+            )}
+
             <button
               type="button"
               className="btn btn-primary"
               onClick={() => void handleSave()}
+              disabled={saving}
               style={{ width: '100%', justifyContent: 'center' }}
             >
-              {saved ? '✓ Saved!' : 'Save changes'}
+              {saving ? 'Saving…' : 'Save changes'}
             </button>
 
             <div className="danger-zone">
               <div className="danger-title">Danger Zone</div>
               <div className="danger-sub">Logging out will clear your session.</div>
-              <button type="button" className="btn btn-danger btn-sm" onClick={onLogout}>
-                Log out
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-outline btn-sm" onClick={onLogout}>
+                  Log out
+                </button>
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => { setDeletePassword(''); setDeleteError(''); setShowDeleteModal(true); }}>
+                  Delete account
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {showDeleteModal && (
+        <div
+          className="t-overlay"
+          onClick={(e) => e.target === e.currentTarget && setShowDeleteModal(false)}
+          role="presentation"
+        >
+          <div className="t-modal">
+            <button type="button" className="t-modal-close" onClick={() => setShowDeleteModal(false)}>✕</button>
+            <h2 style={{ color: 'var(--red)' }}>Delete account</h2>
+            <p style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>
+              This permanently deletes your account and all race history. This cannot be undone.
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <label htmlFor="delete-confirm-password" style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>
+                Confirm your password
+              </label>
+              <input
+                id="delete-confirm-password"
+                className="t-input"
+                type="password"
+                placeholder="Enter your password"
+                value={deletePassword}
+                onChange={(e) => { setDeleteError(''); setDeletePassword(e.target.value); }}
+                onKeyDown={(e) => e.key === 'Enter' && void handleDelete()}
+                autoFocus
+              />
+            </div>
+            {deleteError && (
+              <div style={{ fontSize: 13, color: 'var(--red)', background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                {deleteError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn btn-outline" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowDeleteModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={() => void handleDelete()}
+                disabled={!deletePassword || deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete my account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

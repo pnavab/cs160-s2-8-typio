@@ -60,3 +60,13 @@ export async function startRace(code: string) {
     { new: true },
   )
 }
+
+// Resets a room back to the waiting state with all ready flags cleared.
+// Only acts when the room is currently 'racing' so concurrent calls are safe.
+export async function resetRoom(code: string) {
+  return Room.findOneAndUpdate(
+    { code, status: 'racing' },
+    { $set: { status: 'waiting', 'players.$[].ready': false } },
+    { new: true },
+  )
+}

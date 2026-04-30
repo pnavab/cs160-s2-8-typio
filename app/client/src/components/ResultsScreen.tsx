@@ -60,12 +60,15 @@ export default function ResultsScreen({
 
     socket.on('player-finished', handleFinished);
     socket.on('race-results', handleAllResults);
+    // A player clicking "Play Again" navigates everyone back to lobby.
+    socket.on('go-to-lobby', onPlayAgain);
 
     return () => {
       socket.off('player-finished', handleFinished);
       socket.off('race-results', handleAllResults);
+      socket.off('go-to-lobby', onPlayAgain);
     };
-  }, [room?.code, meName]);
+  }, [room?.code, meName, onPlayAgain]);
 
   const sorted = [...results]
     .sort((a, b) => b.wpm - a.wpm)

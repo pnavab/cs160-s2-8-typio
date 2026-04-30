@@ -1,5 +1,6 @@
 import { Server } from 'socket.io'
 import type { Server as HttpServer } from 'node:http'
+import { saveResult } from './db/raceResult'
 
 type PlayerResult = {
   username: string
@@ -68,11 +69,13 @@ export function setupSocketIO(httpServer: HttpServer) {
         username,
         wpm,
         accuracy,
+        difficulty = 'Beginner',
       }: {
         roomCode: string
         username: string
         wpm: number
         accuracy: number
+        difficulty?: string
       }) => {
         if (!roomCode || !username) return
         if (!roomResults.has(roomCode)) roomResults.set(roomCode, [])
@@ -82,6 +85,10 @@ export function setupSocketIO(httpServer: HttpServer) {
         const placement = results.length + 1
         const result: PlayerResult = { username, wpm, accuracy, placement }
         results.push(result)
+        // Persist to MongoDB only for registered players, not guests
+        if (!username.startsWith('Guest ')) {
+          void saveResult({ username, wpm, accuracy, placement, roomCode, difficulty })
+        }
         // Broadcast to everyone in the room (including the finisher)
         io.to(roomCode).emit('player-finished', result)
       },
@@ -92,6 +99,13 @@ export function setupSocketIO(httpServer: HttpServer) {
       if (!roomCode) return
       const results = roomResults.get(roomCode) ?? []
       socket.emit('race-results', { results })
+    })
+
+    // One player clicked "Play Again", broadcast to everyone in the room so
+    // all ResultsScreens navigate back to the lobby simultaneously.
+    socket.on('trigger-play-again', ({ roomCode }: { roomCode: string }) => {
+      if (!roomCode) return
+      io.to(roomCode).emit('go-to-lobby')
     })
   })
 

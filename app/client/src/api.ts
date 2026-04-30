@@ -57,6 +57,17 @@ export async function createRoom(
   return res.json() as Promise<RoomResponse>
 }
 
+export type GuestJoinResponse = { room: RoomData; username: string } | { error: string }
+
+export async function guestJoin(code: string): Promise<GuestJoinResponse> {
+  const res = await fetch(`${API_BASE}/room/guest-join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+  return res.json() as Promise<GuestJoinResponse>
+}
+
 export async function joinRoom(username: string, code: string): Promise<RoomResponse> {
   const res = await fetch(`${API_BASE}/room/join`, {
     method: 'POST',
@@ -92,6 +103,10 @@ export async function leaveRoom(code: string, username: string): Promise<void> {
   })
 }
 
+export async function resetRoom(code: string): Promise<void> {
+  await fetch(`${API_BASE}/room/${code}/reset`, { method: 'POST' })
+}
+
 export async function startRace(code: string, username: string): Promise<RoomResponse> {
   const res = await fetch(`${API_BASE}/room/${code}/start`, {
     method: 'POST',
@@ -99,4 +114,49 @@ export async function startRace(code: string, username: string): Promise<RoomRes
     body: JSON.stringify({ username }),
   })
   return res.json() as Promise<RoomResponse>
+}
+
+export type ProfileData = {
+  racesPlayed: number
+  bestWpm: number
+  avgWpm: number
+  avgAccuracy: number
+  joinedDate: string | null
+  history: { date: string; wpm: number; acc: number; placement: number; difficulty: string }[]
+}
+
+export type ProfileResponse = { profile: ProfileData } | { error: string }
+
+export async function getProfile(username: string): Promise<ProfileResponse> {
+  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(username)}`)
+  return res.json() as Promise<ProfileResponse>
+}
+
+export type UpdateProfileResponse = { user: { username: string; email: string } } | { error: string }
+
+export async function updateProfile(
+  username: string,
+  currentPassword: string,
+  updates: { username?: string; email?: string; newPassword?: string },
+): Promise<UpdateProfileResponse> {
+  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(username)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, ...updates }),
+  })
+  return res.json() as Promise<UpdateProfileResponse>
+}
+
+export type DeleteAccountResponse = { ok: true } | { error: string }
+
+export async function deleteAccount(
+  username: string,
+  currentPassword: string,
+): Promise<DeleteAccountResponse> {
+  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword }),
+  })
+  return res.json() as Promise<DeleteAccountResponse>
 }

@@ -129,7 +129,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
         });
       }
 
-      if (val === passage) {
+      if (val.length >= passage.length) {
         setFinished(true);
         setRacing(false);
         const elapsed = (Date.now() - (startTimeRef.current ?? Date.now())) / 60000;
@@ -143,6 +143,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
             username: user.username,
             wpm: finalWpm,
             accuracy: finalAcc,
+            difficulty: room.difficulty ?? 'Beginner',
           });
         }
 

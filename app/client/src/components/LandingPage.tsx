@@ -6,13 +6,16 @@ type LandingPageProps = {
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
   onLogin: () => void;
+  onGuestJoin: (code: string) => Promise<{ error?: string }>;
 };
 
-export default function LandingPage({ onCreateRoom, onJoinRoom, onLogin }: LandingPageProps) {
+export default function LandingPage({ onCreateRoom, onJoinRoom, onLogin, onGuestJoin }: LandingPageProps) {
   const [typed, setTyped] = useState('');
   const [wpm, setWpm] = useState(0);
   const [joinCode, setJoinCode] = useState('');
   const [showJoin, setShowJoin] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [guestJoining, setGuestJoining] = useState(false);
   const startTimeRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const joinRef = useRef<HTMLInputElement>(null);
@@ -39,6 +42,16 @@ export default function LandingPage({ onCreateRoom, onJoinRoom, onLogin }: Landi
 
   const handleJoinSubmit = () => {
     if (joinCode.trim().length >= 4) onJoinRoom(joinCode.trim().toUpperCase());
+  };
+
+  const handleGuestJoin = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (code.length < 4) return;
+    setJoinError('');
+    setGuestJoining(true);
+    const result = await onGuestJoin(code);
+    setGuestJoining(false);
+    if (result.error) setJoinError(result.error);
   };
 
   const renderDemoText = () =>
@@ -410,32 +423,42 @@ export default function LandingPage({ onCreateRoom, onJoinRoom, onLogin }: Landi
           role="presentation"
         >
           <div className="modal">
-            <button type="button" className="close" onClick={() => setShowJoin(false)}>
-              ✕
-            </button>
+            <button type="button" className="close" onClick={() => setShowJoin(false)}>✕</button>
             <h2>Join a Room</h2>
-            <p>Enter the room code from your host.</p>
+            <p>Enter the room code, then choose how to join.</p>
             <input
               ref={joinRef}
               className="code-input"
               value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.slice(0, 6))}
-              onKeyDown={(e) => e.key === 'Enter' && handleJoinSubmit()}
+              onChange={(e) => { setJoinCode(e.target.value.slice(0, 6)); setJoinError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && void handleGuestJoin()}
               placeholder="XXXXXX"
               maxLength={6}
               spellCheck={false}
             />
-            <div className="modal-actions">
-              <button type="button" className="btn btn-outline" onClick={() => setShowJoin(false)}>
-                Cancel
-              </button>
+            {joinError && (
+              <div style={{ fontSize: 13, color: '#e03131', background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                {joinError}
+              </div>
+            )}
+            <div className="modal-actions" style={{ flexDirection: 'column', gap: 8 }}>
               <button
                 type="button"
                 className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', textAlign: 'center' }}
+                onClick={() => void handleGuestJoin()}
+                disabled={joinCode.length < 4 || guestJoining}
+              >
+                {guestJoining ? 'Joining…' : 'Join as Guest'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ width: '100%', justifyContent: 'center', textAlign: 'center' }}
                 onClick={handleJoinSubmit}
                 disabled={joinCode.length < 4}
               >
-                Join
+                Log in & Join
               </button>
             </div>
           </div>

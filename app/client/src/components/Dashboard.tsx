@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles } from '@/Shared';
-import { joinRoom } from '@/api';
-import type { TypioUser } from '@/types';
+import { joinRoom, getProfile } from '@/api';
+import type { TypioUser, HistoryEntry } from '@/types';
 
 type DashboardProps = {
   user: TypioUser | null;
@@ -22,11 +22,21 @@ export default function Dashboard({
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [joining, setJoining] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const joinRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     injectBaseStyles();
   }, []);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    void getProfile(user.username).then((res) => {
+      if ('profile' in res) setHistory(res.profile.history.slice(0, 5));
+      setHistoryLoading(false);
+    });
+  }, [user?.username]);
 
   const openJoin = () => {
     setJoinCode('');
@@ -62,7 +72,13 @@ export default function Dashboard({
         .welcome-sub  { font-size: 14px; color: var(--muted); margin-top: 2px; }
         .action-row   { display: flex; gap: 10px; margin-bottom: 32px; }
         .empty-state  { text-align: center; padding: 48px 0; color: var(--muted); font-size: 14px; }
-        @media (max-width: 600px) { .action-row { flex-direction: column; } }
+        .dash-hist-table { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+        .dash-hist-row { display: grid; grid-template-columns: 72px 1fr 70px 70px 40px; gap: 12px; align-items: center; padding: 11px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .dash-hist-row:last-child { border-bottom: none; }
+        .dash-hist-row.header { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+        .dash-bar-track { height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+        .dash-bar-fill  { height: 100%; border-radius: 3px; background: var(--accent); }
+        @media (max-width: 600px) { .action-row { flex-direction: column; } .dash-hist-row { grid-template-columns: 60px 1fr 56px 48px 32px; } }
       `}</style>
 
       <nav className="t-nav">
@@ -99,11 +115,51 @@ export default function Dashboard({
           </button>
         </div>
 
-        <div className="t-card">
-          <div className="empty-state">
-            No race history yet — create or join a room to get started!
+        <div className="t-label" style={{ marginBottom: 12 }}>Recent races</div>
+        {historyLoading ? (
+          <div className="t-card"><div className="empty-state">Loading…</div></div>
+        ) : history.length === 0 ? (
+          <div className="t-card">
+            <div className="empty-state">No race history yet — create or join a room to get started!</div>
           </div>
-        </div>
+        ) : (
+          <div className="dash-hist-table">
+            <div className="dash-hist-row header">
+              <span>Date</span>
+              <span>WPM</span>
+              <span>Accuracy</span>
+              <span>Difficulty</span>
+              <span>Place</span>
+            </div>
+            {history.map((r, i) => {
+              const maxWpm = Math.max(...history.map((x) => x.wpm));
+              return (
+                <div className="dash-hist-row" key={i}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
+                    {r.date}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="dash-bar-track" style={{ flex: 1 }}>
+                      <div className="dash-bar-fill" style={{ width: `${(r.wpm / maxWpm) * 100}%` }} />
+                    </div>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', width: 32, flexShrink: 0 }}>
+                      {r.wpm}
+                    </span>
+                  </div>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>
+                    {r.acc}%
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
+                    {r.difficulty}
+                  </span>
+                  <span style={{ fontSize: 15 }}>
+                    {({ 1: '🥇', 2: '🥈', 3: '🥉' } as Record<number, string>)[r.placement] ?? `#${r.placement}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {showJoin && (

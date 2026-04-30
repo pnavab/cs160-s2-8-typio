@@ -5,6 +5,7 @@ import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
 import { roomHandler } from './endpoints/room'
+import { profileHandler } from './endpoints/profile'
 import { setupSocketIO } from './socket'
 
 const fromEnv = process.env.PORT
@@ -21,7 +22,7 @@ const routes: Record<string, RouteHandler> = {
 
 function cors(res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
@@ -37,6 +38,11 @@ const server = createServer((req, res) => {
 
   if (pathname.startsWith('/room')) {
     void Promise.resolve(roomHandler(req, res, pathname))
+    return
+  }
+
+  if (pathname.startsWith('/profile')) {
+    void Promise.resolve(profileHandler(req, res, pathname))
     return
   }
 
@@ -65,7 +71,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
     process.exit(1)
   }
   console.warn(`Port ${taken} in use, trying ${port}…`)
-  server.listen(port)
+  server.listen(port, '0.0.0.0')
 })
 
 async function start() {
@@ -75,7 +81,7 @@ async function start() {
     console.warn('MongoDB unavailable:', (err as Error).message)
   }
 
-  server.listen(port, () => {
+  server.listen(port, '0.0.0.0', () => {
     console.log(`Server http://localhost:${port}`)
   })
 }

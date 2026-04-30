@@ -62,6 +62,44 @@ export async function roomHandler(
     return
   }
 
+  if (parts.length === 2 && parts[1] === 'guest-join' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody<{ code?: string }>(req)
+      const { code } = body
+      if (!code?.trim()) {
+        jsonRes(res, 400, { error: 'code is required' })
+        return
+      }
+      const existing = await roomActions.findRoom(code)
+      if (!existing) {
+        jsonRes(res, 404, { error: 'Room not found' })
+        return
+      }
+      if (existing.status === 'racing') {
+        jsonRes(res, 400, { error: 'Race has already started' })
+        return
+      }
+      if (existing.players.length >= existing.maxPlayers) {
+        jsonRes(res, 400, { error: 'Room is full' })
+        return
+      }
+      // Find the lowest Guest N that isn't already taken in this room
+      const takenNames = new Set(existing.players.map((p: { username: string }) => p.username))
+      let n = 1
+      while (takenNames.has(`Guest ${n}`)) n++
+      const guestUsername = `Guest ${n}`
+      const room = await roomActions.addPlayer(code, guestUsername)
+      if (!room) {
+        jsonRes(res, 400, { error: 'Could not join room' })
+        return
+      }
+      jsonRes(res, 200, { room: formatRoom(room as Parameters<typeof formatRoom>[0]), username: guestUsername })
+    } catch (err) {
+      jsonRes(res, 500, { error: (err as Error).message })
+    }
+    return
+  }
+
   if (parts.length === 2 && parts[1] === 'join' && req.method === 'POST') {
     try {
       const body = await parseJsonBody<{ username?: string; code?: string }>(req)
@@ -179,6 +217,17 @@ export async function roomHandler(
         return
       }
       jsonRes(res, 200, { room: formatRoom(updated as Parameters<typeof formatRoom>[0]) })
+    } catch (err) {
+      jsonRes(res, 500, { error: (err as Error).message })
+    }
+    return
+  }
+
+  if (parts.length === 3 && parts[2] === 'reset' && req.method === 'POST') {
+    const code = parts[1]
+    try {
+      await roomActions.resetRoom(code)
+      jsonRes(res, 200, { ok: true })
     } catch (err) {
       jsonRes(res, 500, { error: (err as Error).message })
     }

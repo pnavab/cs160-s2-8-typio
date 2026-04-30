@@ -30,3 +30,20 @@ export type PlayerResult = {
   accuracy: number;
   placement: number;
 };
+
+export type HistoryEntry = {
+  date: string;
+  wpm: number;
+  acc: number;
+  placement: number;
+  difficulty: string;
+};
+
+export type UserProfile = {
+  racesPlayed: number;
+  bestWpm: number;
+  avgWpm: number;
+  avgAccuracy: number;
+  joinedDate: string | null;
+  history: HistoryEntry[];
+};
