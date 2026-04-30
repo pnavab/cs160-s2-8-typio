@@ -95,6 +95,7 @@ export function attachSocket(httpServer: HttpServer) {
     cors: { origin: '*', methods: ['GET', 'POST'] },
   })
 
+
   io.on('connection', (socket) => {
     let currentRoomCode: string | null = null
 
@@ -245,6 +246,30 @@ export function attachSocket(httpServer: HttpServer) {
         }
       },
     )
+
+    socket.on('play_again', ({ roomCode }: { roomCode: string }) => {
+      const room = rooms.get(roomCode)
+      if (!room) return
+
+      if (room.countdownTimer) { clearInterval(room.countdownTimer); room.countdownTimer = null }
+      if (room.resultsTimer) { clearTimeout(room.resultsTimer); room.resultsTimer = null }
+
+      room.status = 'lobby'
+      room.startTime = null
+      room.finishedCount = 0
+
+      for (const player of room.players.values()) {
+        player.pct = 0
+        player.wpm = 0
+        player.accuracy = 100
+        player.finished = false
+        player.finishTime = null
+        player.placement = 0
+        player.ready = player.socketId === room.hostSocketId
+      }
+
+      broadcastRoomState(io, room)
+    })
 
     socket.on('chat_message', ({ roomCode, text }: { roomCode: string; text: string }) => {
       const room = rooms.get(roomCode)

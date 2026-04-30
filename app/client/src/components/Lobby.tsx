@@ -6,14 +6,17 @@ import type { TypioRoom, TypioUser, LobbyPlayer } from '@/types';
 type LobbyProps = {
   room: TypioRoom | null;
   user: TypioUser | null;
+  mode: 'create' | 'join' | 'rejoin';
   onRaceStart: (payload: { room: TypioRoom | null; players: LobbyPlayer[] }) => void;
   onLeave: () => void;
 };
 
-export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) {
+export default function Lobby({ room, user, mode, onRaceStart, onLeave }: LobbyProps) {
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [hostSocketId, setHostSocketId] = useState<string | null>(null);
+  const [difficulty, setDifficulty] = useState(room?.difficulty ?? 'Beginner');
+  const [maxPlayers, setMaxPlayers] = useState(room?.maxPlayers ?? 4);
   const [messages, setMessages] = useState<
     { id: number; from: string; text: string; system: boolean }[]
   >([
@@ -36,18 +39,24 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Join the room on mount
+  // Reset ready state when returning from results
+  useEffect(() => {
+    if (mode === 'rejoin') setIsReady(false);
+  }, [mode]);
+
+  // Join the room on mount (skip re-emitting join_room on play-again rejoin)
   useEffect(() => {
     if (!room?.code || !user?.username) return;
 
-    const isHost = room.difficulty !== undefined; // host has full room data from CreateRoom
-    socket.emit('join_room', {
-      roomCode: room.code,
-      username: user.username,
-      isHost,
-      difficulty: room.difficulty,
-      maxPlayers: room.maxPlayers,
-    });
+    if (mode !== 'rejoin') {
+      socket.emit('join_room', {
+        roomCode: room.code,
+        username: user.username,
+        isHost: mode === 'create',
+        difficulty: room.difficulty,
+        maxPlayers: room.maxPlayers,
+      });
+    }
 
     const onRoomState = (state: {
       hostSocketId: string;
@@ -57,6 +66,8 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     }) => {
       setHostSocketId(state.hostSocketId);
       setPlayers(state.players);
+      setDifficulty(state.difficulty);
+      setMaxPlayers(state.maxPlayers);
     };
 
     const onChatMessage = ({ from, text }: { from: string; text: string }) => {
@@ -80,7 +91,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
       socket.off('error', onError);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room?.code, user?.username]);
+  }, [room?.code, user?.username, mode]);
 
   // Keep a ref to players so the race_starting handler always sees the latest list
   const playersRef = useRef(players);
@@ -120,8 +131,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     socket.emit('start_race', { roomCode: room?.code });
   };
 
-  const currentDifficulty = room?.difficulty || 'Beginner';
-  const currentMaxPlayers = room?.maxPlayers || 4;
+  // difficulty and maxPlayers come from socket room_state (fixes non-host mismatch)
 
   return (
     <div className="t-page">
@@ -177,7 +187,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
         <div style={{ marginBottom: 20 }}>
           <div className="t-section-title">Lobby</div>
           <div className="t-section-sub">
-            {currentDifficulty} · Up to {currentMaxPlayers} players
+            {difficulty} · Up to {maxPlayers} players
           </div>
         </div>
 
@@ -213,7 +223,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                 </div>
               </div>
             ))}
-            {Array.from({ length: Math.max(0, currentMaxPlayers - players.length) }).map(
+            {Array.from({ length: Math.max(0, maxPlayers - players.length) }).map(
               (_, i) => (
                 <div className="player-entry" key={`empty-${i}`} style={{ opacity: 0.35 }}>
                   <div className="player-dot" style={{ background: 'var(--border)' }} />
@@ -232,8 +242,8 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
               </div>
             </div>
             <div className="settings-row" style={{ marginBottom: 24 }}>
-              <span className="badge badge-blue">{currentDifficulty}</span>
-              <span className="badge badge-gray">{currentMaxPlayers} max players</span>
+              <span className="badge badge-blue">{difficulty}</span>
+              <span className="badge badge-gray">{maxPlayers} max players</span>
             </div>
 
             <hr className="t-divider" style={{ marginTop: 0 }} />

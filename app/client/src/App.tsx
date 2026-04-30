@@ -26,6 +26,7 @@ export default function App() {
   const [room, setRoom] = useState<TypioRoom | null>(null);
   const [myResult, setMyResult] = useState<RaceFinishResult | null>(null);
   const [allResults, setAllResults] = useState<RaceResult[]>([]);
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join' | 'rejoin'>('create');
 
   useEffect(() => {
     socket.connect();
@@ -44,10 +45,12 @@ export default function App() {
 
   const handleRoomCreated = (r: TypioRoom) => {
     setRoom(r);
+    setLobbyMode('create');
     setPage('lobby');
   };
   const handleJoinRoom = (code: string) => {
     setRoom({ code });
+    setLobbyMode('join');
     setPage('lobby');
   };
 
@@ -80,8 +83,10 @@ export default function App() {
   };
 
   const handlePlayAgain = () => {
+    socket.emit('play_again', { roomCode: room?.code });
     setMyResult(null);
     setAllResults([]);
+    setLobbyMode('rejoin');
     setPage('lobby');
   };
 
@@ -128,6 +133,7 @@ export default function App() {
         <Lobby
           room={room}
           user={user}
+          mode={lobbyMode}
           onRaceStart={handleRaceStart}
           onLeave={() => setPage(user ? 'dashboard' : 'landing')}
         />
