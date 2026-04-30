@@ -1,21 +1,14 @@
 import { useEffect } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
-import type { TypioRoom, TypioUser, RaceFinishResult } from '@/types';
-
-const MOCK_RESULTS = [
-  { username: 'alex', wpm: 94, accuracy: 97, placement: 1 },
-  { username: 'you', wpm: 84, accuracy: 96, placement: 2 },
-  { username: 'sam', wpm: 67, accuracy: 92, placement: 3 },
-];
+import type { TypioRoom, TypioUser, RaceFinishResult, RaceResult } from '@/types';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-
-type Row = (typeof MOCK_RESULTS)[number];
 
 type ResultsScreenProps = {
   room: TypioRoom | null;
   user: TypioUser | null;
   myResult: RaceFinishResult | null;
+  allResults: RaceResult[];
   onPlayAgain: () => void;
   onLeave: () => void;
 };
@@ -24,6 +17,7 @@ export default function ResultsScreen({
   room,
   user,
   myResult,
+  allResults,
   onPlayAgain,
   onLeave,
 }: ResultsScreenProps) {
@@ -33,11 +27,12 @@ export default function ResultsScreen({
 
   const meName = user?.username || 'you';
 
-  const results: Row[] = myResult
-    ? MOCK_RESULTS.map((r) => (r.username === meName ? { ...r, ...myResult } : r))
-        .sort((a, b) => b.wpm - a.wpm)
-        .map((r, i) => ({ ...r, placement: i + 1 }))
-    : MOCK_RESULTS;
+  // Use real results if available, otherwise fall back to just myResult as single-player
+  const results: RaceResult[] = allResults.length > 0
+    ? allResults
+    : myResult
+      ? [{ username: meName, wpm: myResult.wpm, accuracy: myResult.accuracy, placement: 1, finished: true }]
+      : [];
 
   return (
     <div className="t-page">
@@ -103,56 +98,83 @@ export default function ResultsScreen({
           </div>
         </div>
 
-        <div className="podium-row">
-          {results.slice(0, 3).map((r, i) => (
-            <div
-              key={r.username}
-              className={`podium-card${r.username === meName ? ' me' : ''}`}
-            >
-              <div className="podium-medal">{MEDALS[i] || `#${i + 1}`}</div>
-              <div className="podium-name">
-                {r.username}
-                {r.username === meName ? ' (you)' : ''}
-              </div>
-              <div className="podium-wpm">{r.wpm}</div>
-              <div className="podium-wpm-label">WPM</div>
-              <div className="podium-acc">{r.accuracy}% accuracy</div>
+        {myResult && (
+          <div className="my-summary">
+            <div className="summary-stat">
+              <div className="summary-val">{myResult.wpm}</div>
+              <div className="summary-label">WPM</div>
             </div>
-          ))}
-        </div>
-
-        <div className="leaderboard">
-          <div className="lb-row">
-            <div className="lb-rank lb-header">#</div>
-            <div className="lb-header">Player</div>
-            <div className="lb-header" style={{ textAlign: 'right' }}>
-              WPM
+            <div className="summary-stat">
+              <div className="summary-val">{myResult.accuracy}%</div>
+              <div className="summary-label">Accuracy</div>
             </div>
-            <div className="lb-header" style={{ textAlign: 'right' }}>
-              Accuracy
+            <div className="summary-stat">
+              <div className="summary-val">#{myResult.placement}</div>
+              <div className="summary-label">Placement</div>
             </div>
           </div>
-          {results.map((r, i) => (
-            <div
-              key={r.username}
-              className={`lb-row${r.username === meName ? ' me-row' : ''}`}
-            >
-              <div className="lb-rank">
-                <span style={{ color: PLAYER_COLORS[i % PLAYER_COLORS.length] }}>{r.placement}</span>
-              </div>
-              <div className="lb-name">
-                {r.username}
-                {r.username === meName && (
-                  <span className="badge badge-blue" style={{ marginLeft: 8 }}>
-                    you
-                  </span>
-                )}
-              </div>
-              <div className="lb-wpm">{r.wpm}</div>
-              <div className="lb-acc">{r.accuracy}%</div>
+        )}
+
+        {results.length > 0 && (
+          <>
+            <div className="podium-row">
+              {results.slice(0, 3).map((r, i) => (
+                <div
+                  key={r.username}
+                  className={`podium-card${r.username === meName ? ' me' : ''}`}
+                >
+                  <div className="podium-medal">{MEDALS[i] ?? `#${i + 1}`}</div>
+                  <div className="podium-name">
+                    {r.username}
+                    {r.username === meName ? ' (you)' : ''}
+                  </div>
+                  <div className="podium-wpm">{r.wpm}</div>
+                  <div className="podium-wpm-label">WPM</div>
+                  <div className="podium-acc">{r.accuracy}% accuracy</div>
+                  {!r.finished && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>DNF</div>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+
+            <div className="leaderboard">
+              <div className="lb-row">
+                <div className="lb-rank lb-header">#</div>
+                <div className="lb-header">Player</div>
+                <div className="lb-header" style={{ textAlign: 'right' }}>WPM</div>
+                <div className="lb-header" style={{ textAlign: 'right' }}>Accuracy</div>
+              </div>
+              {results.map((r, i) => (
+                <div
+                  key={r.username}
+                  className={`lb-row${r.username === meName ? ' me-row' : ''}`}
+                >
+                  <div className="lb-rank">
+                    <span style={{ color: PLAYER_COLORS[i % PLAYER_COLORS.length] }}>
+                      {r.placement}
+                    </span>
+                  </div>
+                  <div className="lb-name">
+                    {r.username}
+                    {r.username === meName && (
+                      <span className="badge badge-blue" style={{ marginLeft: 8 }}>
+                        you
+                      </span>
+                    )}
+                    {!r.finished && (
+                      <span className="badge" style={{ marginLeft: 8, fontSize: 10, color: 'var(--muted)' }}>
+                        DNF
+                      </span>
+                    )}
+                  </div>
+                  <div className="lb-wpm">{r.wpm > 0 ? r.wpm : '—'}</div>
+                  <div className="lb-acc">{r.finished ? `${r.accuracy}%` : '—'}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="action-row">
           <button type="button" className="btn btn-outline btn-lg" onClick={onLeave}>

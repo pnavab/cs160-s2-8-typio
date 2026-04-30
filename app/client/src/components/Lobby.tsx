@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
+import { socket } from '@/socket';
 import type { TypioRoom, TypioUser, LobbyPlayer } from '@/types';
-
-const MOCK_PLAYERS: LobbyPlayer[] = [
-  { id: '1', username: 'alex', ready: true },
-  { id: '2', username: 'sam', ready: false },
-];
 
 type LobbyProps = {
   room: TypioRoom | null;
@@ -15,15 +11,16 @@ type LobbyProps = {
 };
 
 export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) {
-  const [players, setPlayers] = useState<LobbyPlayer[]>(MOCK_PLAYERS);
+  const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [isReady, setIsReady] = useState(false);
+  const [hostSocketId, setHostSocketId] = useState<string | null>(null);
   const [messages, setMessages] = useState<
     { id: number; from: string; text: string; system: boolean }[]
   >([
     {
       id: 0,
       from: 'typio',
-      text: `Room ${room?.code} created. Share the code to invite players!`,
+      text: `Room ${room?.code ?? ''} — share the code to invite players!`,
       system: true,
     },
   ]);
@@ -34,29 +31,82 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
   useEffect(() => {
     injectBaseStyles();
   }, []);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Join the room on mount
+  useEffect(() => {
+    if (!room?.code || !user?.username) return;
+
+    const isHost = room.difficulty !== undefined; // host has full room data from CreateRoom
+    socket.emit('join_room', {
+      roomCode: room.code,
+      username: user.username,
+      isHost,
+      difficulty: room.difficulty,
+      maxPlayers: room.maxPlayers,
+    });
+
+    const onRoomState = (state: {
+      hostSocketId: string;
+      players: { id: string; username: string; ready: boolean }[];
+      difficulty: string;
+      maxPlayers: number;
+    }) => {
+      setHostSocketId(state.hostSocketId);
+      setPlayers(state.players);
+    };
+
+    const onChatMessage = ({ from, text }: { from: string; text: string }) => {
+      setMessages((m) => [...m, { id: Date.now(), from, text, system: false }]);
+    };
+
+    const onError = ({ message }: { message: string }) => {
+      setMessages((m) => [
+        ...m,
+        { id: Date.now(), from: 'typio', text: `Error: ${message}`, system: true },
+      ]);
+    };
+
+    socket.on('room_state', onRoomState);
+    socket.on('chat_message', onChatMessage);
+    socket.on('error', onError);
+
+    return () => {
+      socket.off('room_state', onRoomState);
+      socket.off('chat_message', onChatMessage);
+      socket.off('error', onError);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.code, user?.username]);
+
+  // Keep a ref to players so the race_starting handler always sees the latest list
+  const playersRef = useRef(players);
+  useEffect(() => { playersRef.current = players; }, [players]);
+
+  useEffect(() => {
+    const onRaceStarting = () => {
+      onRaceStart({ room, players: playersRef.current });
+    };
+    socket.on('race_starting', onRaceStarting);
+    return () => { socket.off('race_starting', onRaceStarting); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room]);
+
   const allReady = players.length >= 2 && players.every((p) => p.ready);
-  const isHost = user?.username === players[0]?.username;
+  const isHost = socket.id === hostSocketId;
 
   const toggleReady = () => {
-    setIsReady((r) => !r);
-    setPlayers((ps) =>
-      ps.map((p) => (p.username === user?.username ? { ...p, ready: !p.ready } : p)),
-    );
+    const next = !isReady;
+    setIsReady(next);
+    socket.emit('player_ready', { roomCode: room?.code, ready: next });
   };
 
   const sendChat = () => {
     if (!chatInput.trim()) return;
-    const msg = {
-      id: Date.now(),
-      from: user?.username || 'you',
-      text: chatInput.trim(),
-      system: false,
-    };
-    setMessages((m) => [...m, msg]);
+    socket.emit('chat_message', { roomCode: room?.code, text: chatInput.trim() });
     setChatInput('');
   };
 
@@ -67,8 +117,11 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
   };
 
   const handleStart = () => {
-    onRaceStart({ room, players });
+    socket.emit('start_race', { roomCode: room?.code });
   };
+
+  const currentDifficulty = room?.difficulty || 'Beginner';
+  const currentMaxPlayers = room?.maxPlayers || 4;
 
   return (
     <div className="t-page">
@@ -124,7 +177,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
         <div style={{ marginBottom: 20 }}>
           <div className="t-section-title">Lobby</div>
           <div className="t-section-sub">
-            {room?.difficulty || 'Beginner'} · Up to {room?.maxPlayers || 4} players
+            {currentDifficulty} · Up to {currentMaxPlayers} players
           </div>
         </div>
 
@@ -143,7 +196,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                   {p.username}
                   {p.username === user?.username ? ' (you)' : ''}
                 </span>
-                {i === 0 && <span className="player-host-tag">host</span>}
+                {p.id === hostSocketId && <span className="player-host-tag">host</span>}
                 <div
                   className="badge"
                   style={{
@@ -160,7 +213,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
                 </div>
               </div>
             ))}
-            {Array.from({ length: Math.max(0, (room?.maxPlayers || 4) - players.length) }).map(
+            {Array.from({ length: Math.max(0, currentMaxPlayers - players.length) }).map(
               (_, i) => (
                 <div className="player-entry" key={`empty-${i}`} style={{ opacity: 0.35 }}>
                   <div className="player-dot" style={{ background: 'var(--border)' }} />
@@ -179,21 +232,23 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
               </div>
             </div>
             <div className="settings-row" style={{ marginBottom: 24 }}>
-              <span className="badge badge-blue">{room?.difficulty || 'Beginner'}</span>
-              <span className="badge badge-gray">{room?.maxPlayers || 4} max players</span>
+              <span className="badge badge-blue">{currentDifficulty}</span>
+              <span className="badge badge-gray">{currentMaxPlayers} max players</span>
             </div>
 
             <hr className="t-divider" style={{ marginTop: 0 }} />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
-              <button
-                type="button"
-                className={`btn btn-lg ${isReady ? 'btn-outline' : 'btn-success'}`}
-                style={{ justifyContent: 'center' }}
-                onClick={toggleReady}
-              >
-                {isReady ? '✅ Ready — click to unready' : 'Mark as Ready'}
-              </button>
+              {!isHost && (
+                <button
+                  type="button"
+                  className={`btn btn-lg ${isReady ? 'btn-outline' : 'btn-success'}`}
+                  style={{ justifyContent: 'center' }}
+                  onClick={toggleReady}
+                >
+                  {isReady ? '✅ Ready — click to unready' : 'Mark as Ready'}
+                </button>
+              )}
 
               {isHost && (
                 <button

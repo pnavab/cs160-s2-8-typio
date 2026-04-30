@@ -1,15 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
-import type { TypioRoom, TypioUser, LobbyPlayer, RaceFinishResult } from '@/types';
-
-const PASSAGES: Record<string, string> = {
-  Beginner:
-    'the cat sat on the mat and looked at the dog by the door',
-  Intermediate:
-    'a quick brown fox jumps over the lazy dog near the old oak tree by the river',
-  Advanced:
-    'the complexity of modern software systems demands rigorous testing methodologies and careful attention to edge cases throughout the development lifecycle',
-};
+import { socket } from '@/socket';
+import type { TypioRoom, TypioUser, LobbyPlayer, RaceFinishResult, RaceResult } from '@/types';
 
 type RaceOpponent = {
   username: string;
@@ -23,22 +15,21 @@ type RaceScreenProps = {
   room: TypioRoom | null;
   user: TypioUser | null;
   players?: LobbyPlayer[];
-  onFinish: (result: RaceFinishResult) => void;
+  onFinish: (result: { myResult: RaceFinishResult; allResults: RaceResult[] }) => void;
 };
 
 export default function RaceScreen({ room, user, players: initialPlayers, onFinish }: RaceScreenProps) {
-  const passage = PASSAGES[room?.difficulty ?? ''] ?? PASSAGES.Beginner;
-  const words = passage.split(' ');
-
+  const [passage, setPassage] = useState('');
   const [typed, setTyped] = useState('');
   const [wpm, setWpm] = useState(0);
   const [accuracy, setAccuracy] = useState(100);
-  const [countdown, setCountdown] = useState(3);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [racing, setRacing] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [waitingForResults, setWaitingForResults] = useState(false);
 
   const [opponents, setOpponents] = useState<RaceOpponent[]>(() =>
-    (initialPlayers || [{ username: 'alex' }, { username: 'sam' }])
+    (initialPlayers || [])
       .filter((p) => p.username !== user?.username)
       .map((p, i) => ({
         username: p.username,
@@ -48,73 +39,123 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
       })),
   );
 
+  // Server-provided race start timestamp — used for synchronized WPM across all clients
   const startTimeRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (countdown <= 0) {
+    injectBaseStyles();
+  }, []);
+
+  useEffect(() => {
+    const onCountdownTick = ({ value }: { value: number }) => {
+      setCountdown(value);
+    };
+
+    const onRaceStart = ({ passage: p, startTime }: { passage: string; startTime: number }) => {
+      setPassage(p);
+      startTimeRef.current = startTime;
+      setCountdown(null);
       setRacing(true);
       inputRef.current?.focus();
-      return;
-    }
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [countdown]);
+    };
 
-  useEffect(() => {
-    if (!racing || finished) return;
-    const t = setInterval(() => {
-      setOpponents((ops) =>
-        ops.map((op) => {
-          const speed = 0.4 + Math.random() * 0.8;
-          const newPct = Math.min(100, op.pct + speed);
-          const newWpm = Math.round(40 + Math.random() * 60);
-          return { ...op, pct: newPct, wpm: newWpm };
+    const onRaceProgress = ({
+      players,
+    }: {
+      players: { username: string; pct: number; wpm: number; accuracy: number; finished: boolean }[];
+    }) => {
+      setOpponents((prev) =>
+        prev.map((op) => {
+          const update = players.find((p) => p.username === op.username);
+          return update ? { ...op, pct: update.pct, wpm: update.wpm } : op;
         }),
       );
-    }, 300);
-    return () => clearInterval(t);
-  }, [racing, finished]);
+    };
 
-  useEffect(() => {
-    if (!startTimeRef.current || typed.length === 0) return;
-    const elapsed = (Date.now() - startTimeRef.current) / 60000;
-    const wordsDone = typed.trim().split(/\s+/).filter(Boolean).length;
-    setWpm(elapsed > 0 ? Math.round(wordsDone / elapsed) : 0);
-  }, [typed]);
+    const onRaceResults = ({ results }: { results: RaceResult[] }) => {
+      const me = results.find((r) => r.username === user?.username);
+      const myResult: RaceFinishResult = {
+        wpm: me?.wpm ?? 0,
+        accuracy: me?.accuracy ?? 100,
+        placement: me?.placement ?? results.length,
+      };
+      onFinish({ myResult, allResults: results });
+    };
 
-  const myPct = (typed.length / passage.length) * 100;
+    socket.on('countdown_tick', onCountdownTick);
+    socket.on('race_start', onRaceStart);
+    socket.on('race_progress', onRaceProgress);
+    socket.on('race_results', onRaceResults);
+
+    return () => {
+      socket.off('countdown_tick', onCountdownTick);
+      socket.off('race_start', onRaceStart);
+      socket.off('race_progress', onRaceProgress);
+      socket.off('race_results', onRaceResults);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.username]);
+
+  const myPct = passage.length > 0 ? (typed.length / passage.length) * 100 : 0;
 
   const handleInput = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      if (!racing || finished) return;
+      if (!racing || finished || !passage) return;
       const val = e.target.value;
       if (val.length > passage.length) return;
 
-      if (!startTimeRef.current && val.length > 0) startTimeRef.current = Date.now();
       setTyped(val);
 
+      // Count errors and update accuracy
       let errs = 0;
       for (let i = 0; i < val.length; i++) {
         if (val[i] !== passage[i]) errs++;
       }
-      setAccuracy(val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100);
+      const currentAccuracy = val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100;
+      setAccuracy(currentAccuracy);
+
+      // WPM uses server startTime so all players' clocks are synchronized
+      if (startTimeRef.current && val.length > 0) {
+        const elapsedMin = (Date.now() - startTimeRef.current) / 60_000;
+        const wordsDone = val.trim().split(/\s+/).filter(Boolean).length;
+        setWpm(elapsedMin > 0 ? Math.round(wordsDone / elapsedMin) : 0);
+      }
+
+      // Emit live progress to server (broadcast to room)
+      const pct = (val.length / passage.length) * 100;
+      const currentWpm = startTimeRef.current && val.length > 0
+        ? Math.round(val.trim().split(/\s+/).filter(Boolean).length / ((Date.now() - startTimeRef.current) / 60_000))
+        : 0;
+      socket.emit('progress_update', {
+        roomCode: room?.code,
+        pct,
+        wpm: currentWpm,
+        accuracy: currentAccuracy,
+      });
 
       if (val === passage) {
         setFinished(true);
         setRacing(false);
-        const elapsed = (Date.now() - (startTimeRef.current ?? Date.now())) / 60000;
-        const finalWpm = elapsed > 0 ? Math.round(words.length / elapsed) : 0;
+        setWaitingForResults(true);
+
+        // Final WPM: total passage words / total elapsed time from race start
+        const elapsedMin = startTimeRef.current
+          ? (Date.now() - startTimeRef.current) / 60_000
+          : 0;
+        const passageWords = passage.split(' ').length;
+        const finalWpm = elapsedMin > 0 ? Math.round(passageWords / elapsedMin) : 0;
         const finalAcc = val.length > 0 ? Math.round(((val.length - errs) / val.length) * 100) : 100;
-        setTimeout(() => onFinish({ wpm: finalWpm, accuracy: finalAcc, placement: 1 }), 800);
+
+        socket.emit('player_finish', {
+          roomCode: room?.code,
+          wpm: finalWpm,
+          accuracy: finalAcc,
+        });
       }
     },
-    [racing, finished, passage, words.length, onFinish],
+    [racing, finished, passage, room?.code],
   );
-
-  useEffect(() => {
-    injectBaseStyles();
-  }, []);
 
   const renderPassage = () =>
     passage.split('').map((char, i) => {
@@ -128,7 +169,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
       );
     });
 
-  const allPlayers = [
+  const allPlayers: RaceOpponent[] = [
     { username: user?.username || 'you', pct: myPct, wpm, color: PLAYER_COLORS[0]!, isMe: true },
     ...opponents,
   ];
@@ -196,12 +237,24 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
           font-weight: 500;
           margin-bottom: 16px;
         }
+
+        .waiting-banner {
+          background: var(--accent-light);
+          border: 1px solid var(--accent);
+          border-radius: 10px;
+          padding: 14px 20px;
+          text-align: center;
+          font-size: 14px;
+          color: var(--accent);
+          font-weight: 500;
+          margin-bottom: 16px;
+        }
       `}</style>
 
-      {countdown > 0 && (
+      {countdown !== null && (
         <div className="countdown-overlay">
           <div className="countdown-number" key={countdown}>
-            {countdown}
+            {countdown > 0 ? countdown : 'GO!'}
           </div>
           <div className="countdown-label">Get ready…</div>
         </div>
@@ -235,12 +288,19 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
       </nav>
 
       <div className="t-main">
-        {finished && (
-          <div className="finished-banner">🎉 You finished! Calculating results…</div>
+        {finished && !waitingForResults && (
+          <div className="finished-banner">You finished!</div>
+        )}
+        {waitingForResults && (
+          <div className="waiting-banner">You finished! Waiting for final results…</div>
         )}
 
         <div className="passage-box" onClick={() => inputRef.current?.focus()} role="presentation">
-          {renderPassage()}
+          {passage ? renderPassage() : (
+            <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
+              {countdown !== null ? 'Passage will appear when race starts…' : 'Connecting…'}
+            </span>
+          )}
         </div>
 
         <input
@@ -250,7 +310,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
           onChange={handleInput}
           disabled={!racing || finished}
           placeholder={
-            racing ? 'Type the passage above…' : countdown > 0 ? 'Get ready…' : ''
+            racing ? 'Type the passage above…' : countdown !== null ? 'Get ready…' : 'Waiting for race to start…'
           }
           spellCheck={false}
           autoComplete="off"

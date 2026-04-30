@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { connectDb } from './db'
 import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
+import { attachSocket } from './socket'
 
 const fromEnv = process.env.PORT
 let port = fromEnv !== undefined ? Number(fromEnv) : 4000
@@ -24,6 +25,7 @@ function cors(res: ServerResponse) {
 }
 
 const server = createServer((req, res) => {
+  // Socket.IO handles its own upgrade requests; only process regular HTTP here
   cors(res)
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -41,6 +43,8 @@ const server = createServer((req, res) => {
   res.writeHead(404, { 'Content-Type': 'text/plain' })
   res.end('Not found')
 })
+
+attachSocket(server)
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code !== 'EADDRINUSE') throw err
