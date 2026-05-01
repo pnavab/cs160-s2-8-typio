@@ -12,6 +12,7 @@ const roomSchema = new Schema(
     difficulty: { type: String, default: 'Beginner' },
     maxPlayers: { type: Number, default: 4 },
     status: { type: String, enum: ['waiting', 'racing'], default: 'waiting' },
+    phraseIndex: { type: Number, default: 0 },
     players: [playerSchema],
   },
   { timestamps: true },

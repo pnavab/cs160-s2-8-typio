@@ -15,6 +15,7 @@ export type TypioRoom = {
   difficulty?: string;
   maxPlayers?: number;
   status?: string;
+  phraseIndex?: number;
   players?: LobbyPlayer[];
 };
 

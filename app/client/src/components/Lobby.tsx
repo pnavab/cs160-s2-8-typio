@@ -85,6 +85,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
               difficulty: data.room.difficulty,
               maxPlayers: data.room.maxPlayers,
               status: data.room.status,
+              phraseIndex: data.room.phraseIndex,
             },
             players: data.room.players,
           });
@@ -119,9 +120,20 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
   const handleStart = async () => {
     if (!room?.code || !user?.username || raceStartedRef.current) return;
     raceStartedRef.current = true;
-    await startRace(room.code, user.username);
+    const result = await startRace(room.code, user.username);
     getSocket().emit('race-started', { roomCode: room.code });
-    onRaceStart({ room: { ...room, difficulty, maxPlayers }, players });
+    const updatedRoom = !('error' in result) ? result.room : null;
+    onRaceStart({
+      room: {
+        code: room.code,
+        host: updatedRoom?.host ?? room.host,
+        difficulty: updatedRoom?.difficulty ?? difficulty,
+        maxPlayers: updatedRoom?.maxPlayers ?? maxPlayers,
+        status: updatedRoom?.status ?? 'racing',
+        phraseIndex: updatedRoom?.phraseIndex ?? 0,
+      },
+      players,
+    });
   };
 
   const handleLeave = async () => {

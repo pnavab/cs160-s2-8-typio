@@ -1,0 +1,38 @@
+{
+  "Beginner": [
+    "the cat sat on the mat and looked at the dog by the door",
+    "she went to the store to buy some milk and eggs for the morning",
+    "the dog ran fast and jumped over the big red ball in the yard",
+    "it was a nice day and the sun was out so we went to the park",
+    "he put the book on the shelf and sat down to drink his tea",
+    "the bird sang a song from the top of the old green tree",
+    "my mom made a cake and we all had a big slice after lunch",
+    "the kids played in the snow and built a tall snowman by the road",
+    "she read a book by the fire and fell asleep in her chair",
+    "the bus was late so he had to run to get to school on time"
+  ],
+  "Intermediate": [
+    "a quick brown fox jumps over the lazy dog near the old oak tree by the river",
+    "the scientist carefully observed the experiment and recorded the results in her notebook",
+    "traveling to new countries opens your mind to different cultures and ways of living",
+    "the mountain trail was steep but the view from the summit made it all worthwhile",
+    "she practiced the piano every evening until the melody flowed from her fingertips naturally",
+    "the library held thousands of books covering every subject imaginable from history to science",
+    "cooking a great meal requires patience attention to detail and a willingness to experiment",
+    "the engineer solved the problem by breaking it into smaller more manageable components",
+    "learning a new language takes dedication but each small step forward is a real achievement",
+    "the old lighthouse stood at the edge of the cliff guiding ships safely through the fog"
+  ],
+  "Advanced": [
+    "the complexity of modern software systems demands rigorous testing methodologies and careful attention to edge cases throughout the development lifecycle",
+    "philosophical inquiry into the nature of consciousness remains one of the most profound challenges facing cognitive science and neuroscience today",
+    "the interplay between economic policy and societal well-being requires nuanced analysis that accounts for both short-term outcomes and long-term consequences",
+    "quantum mechanics fundamentally challenges our classical intuitions about the deterministic nature of physical reality at the subatomic level",
+    "the Renaissance was a pivotal period of cultural and intellectual transformation that reshaped European civilization and laid the groundwork for modernity",
+    "developing resilient distributed systems requires a deep understanding of fault tolerance consistency tradeoffs and the nuances of eventual consistency models",
+    "linguistic relativity posits that the structure of a language influences its speakers perception of the world in subtle yet meaningful ways",
+    "the accelerating pace of technological innovation creates both unprecedented opportunities and significant ethical dilemmas that society must carefully navigate",
+    "climate change mitigation strategies must balance economic development with ecological preservation requiring unprecedented global cooperation and political will",
+    "cryptographic protocols underpin the security of digital communication and their mathematical foundations are rooted in the theory of computational complexity"
+  ]
+}

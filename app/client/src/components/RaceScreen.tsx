@@ -2,15 +2,12 @@ import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'reac
 import { injectBaseStyles, PLAYER_COLORS } from '@/Shared';
 import { connectSocket, getSocket } from '@/socket';
 import type { TypioRoom, TypioUser, LobbyPlayer, RaceFinishResult } from '@/types';
+import PHRASES from '@/phrases.json';
 
-const PASSAGES: Record<string, string> = {
-  Beginner:
-    'the cat sat on the mat and looked at the dog by the door',
-  Intermediate:
-    'a quick brown fox jumps over the lazy dog near the old oak tree by the river',
-  Advanced:
-    'the complexity of modern software systems demands rigorous testing methodologies and careful attention to edge cases throughout the development lifecycle',
-};
+function pickPhrase(difficulty: string, index: number): string {
+  const pool = (PHRASES as Record<string, string[]>)[difficulty] ?? PHRASES.Beginner;
+  return pool[index % pool.length]!;
+}
 
 type RaceOpponent = {
   username: string;
@@ -28,7 +25,7 @@ type RaceScreenProps = {
 };
 
 export default function RaceScreen({ room, user, players: initialPlayers, onFinish }: RaceScreenProps) {
-  const passage = PASSAGES[room?.difficulty ?? ''] ?? PASSAGES.Beginner;
+  const passage = pickPhrase(room?.difficulty ?? 'Beginner', room?.phraseIndex ?? 0);
   const words = passage.split(' ');
 
   const [typed, setTyped] = useState('');
@@ -158,7 +155,7 @@ export default function RaceScreen({ room, user, players: initialPlayers, onFini
   }, []);
 
   const renderPassage = () =>
-    passage.split('').map((char, i) => {
+    passage.split('').map((char: string, i: number) => {
       let cls = 'rc';
       if (i < typed.length) cls += typed[i] === char ? ' ok' : ' err';
       else if (i === typed.length) cls += ' cur';

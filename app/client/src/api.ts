@@ -39,6 +39,7 @@ export type RoomData = {
   difficulty: string
   maxPlayers: number
   status: string
+  phraseIndex: number
   players: RoomPlayer[]
 }
 export type RoomResponse = { room: RoomData } | { error: string }

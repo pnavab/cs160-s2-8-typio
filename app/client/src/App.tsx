@@ -7,7 +7,7 @@ import Lobby from '@/components/Lobby';
 import RaceScreen from '@/components/RaceScreen';
 import ResultsScreen from '@/components/ResultsScreen';
 import ProfilePage from '@/components/ProfilePage';
-import { guestJoin, resetRoom } from '@/api';
+import { guestJoin, resetRoom, leaveRoom } from '@/api';
 import { getSocket } from '@/socket';
 import type { TypioRoom, TypioUser, RaceFinishResult, LobbyPlayer } from '@/types';
 
@@ -75,6 +75,7 @@ export default function App() {
       code: r?.code ?? prev?.code ?? '',
       difficulty: r?.difficulty ?? prev?.difficulty,
       maxPlayers: r?.maxPlayers ?? prev?.maxPlayers,
+      phraseIndex: r?.phraseIndex ?? prev?.phraseIndex,
       players,
     }));
     setPage('race');
@@ -82,6 +83,14 @@ export default function App() {
   const handleRaceFinish = (result: RaceFinishResult) => {
     setMyResult(result);
     setPage('results');
+  };
+  const handleResultsLeave = async () => {
+    if (room?.code && user?.username) {
+      await leaveRoom(room.code, user.username);
+    }
+    setMyResult(null);
+    setRoom(null);
+    setPage(homePage);
   };
   const handlePlayAgain = async () => {
     if (room?.code) {
@@ -162,7 +171,7 @@ export default function App() {
           user={user}
           myResult={myResult}
           onPlayAgain={() => void handlePlayAgain()}
-          onLeave={() => setPage(homePage)}
+          onLeave={() => void handleResultsLeave()}
         />
       );
 

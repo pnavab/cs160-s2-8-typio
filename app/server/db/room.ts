@@ -56,7 +56,7 @@ export async function removePlayer(code: string, username: string) {
 export async function startRace(code: string) {
   return Room.findOneAndUpdate(
     { code },
-    { $set: { status: 'racing' } },
+    { $set: { status: 'racing', phraseIndex: Math.floor(Math.random() * 10) } },
     { new: true },
   )
 }

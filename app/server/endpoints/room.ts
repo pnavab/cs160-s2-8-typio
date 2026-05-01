@@ -13,6 +13,7 @@ function formatRoom(room: {
   difficulty: string
   maxPlayers: number
   status: string
+  phraseIndex: number
   players: { _id: { toString(): string }; username: string; ready: boolean }[]
 }) {
   return {
@@ -21,6 +22,7 @@ function formatRoom(room: {
     difficulty: room.difficulty,
     maxPlayers: room.maxPlayers,
     status: room.status,
+    phraseIndex: room.phraseIndex,
     players: room.players.map((p) => ({
       id: p._id.toString(),
       username: p.username,
