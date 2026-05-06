@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { injectBaseStyles } from '@/Shared';
-import { joinRoom, getProfile } from '@/api';
+import { joinRoom, getProfile, getLeaderboard } from '@/api';
+import type { LeaderboardEntry } from '@/api';
 import type { TypioUser, HistoryEntry } from '@/types';
 
 type DashboardProps = {
@@ -24,6 +25,9 @@ export default function Dashboard({
   const [joining, setJoining] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [lbPeriod, setLbPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [lbData, setLbData] = useState<Record<'day' | 'week' | 'month', LeaderboardEntry[] | null>>({ day: null, week: null, month: null });
+  const [lbLoading, setLbLoading] = useState(true);
   const joinRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -37,6 +41,15 @@ export default function Dashboard({
       setHistoryLoading(false);
     });
   }, [user?.username]);
+
+  useEffect(() => {
+    if (lbData[lbPeriod] !== null) return;
+    setLbLoading(true);
+    void getLeaderboard(lbPeriod).then((res) => {
+      setLbData((prev) => ({ ...prev, [lbPeriod]: 'players' in res ? res.players : [] }));
+      setLbLoading(false);
+    });
+  }, [lbPeriod, lbData]);
 
   const openJoin = () => {
     setJoinCode('');
@@ -72,6 +85,12 @@ export default function Dashboard({
         .welcome-sub  { font-size: 14px; color: var(--muted); margin-top: 2px; }
         .action-row   { display: flex; gap: 10px; margin-bottom: 32px; }
         .empty-state  { text-align: center; padding: 48px 0; color: var(--muted); font-size: 14px; }
+        .lb-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+        .lb-tab { font-family: var(--mono); font-size: 11px; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border); background: none; cursor: pointer; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; transition: background 0.1s, color 0.1s; }
+        .lb-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .lb-row { display: grid; grid-template-columns: 28px 1fr 56px; gap: 10px; align-items: center; padding: 10px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .lb-row:last-child { border-bottom: none; }
+        .lb-rank { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: center; }
         .dash-hist-table { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
         .dash-hist-row { display: grid; grid-template-columns: 72px 1fr 70px 70px 40px; gap: 12px; align-items: center; padding: 11px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
         .dash-hist-row:last-child { border-bottom: none; }
@@ -114,6 +133,46 @@ export default function Dashboard({
             Join Room
           </button>
         </div>
+
+        <div className="t-label" style={{ marginBottom: 12 }}>Top players</div>
+        <div className="lb-tabs">
+          {(['day', 'week', 'month'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`lb-tab${lbPeriod === p ? ' active' : ''}`}
+              onClick={() => setLbPeriod(p)}
+            >
+              {p === 'day' ? 'Today' : p === 'week' ? 'This week' : 'This month'}
+            </button>
+          ))}
+        </div>
+        {lbLoading && lbData[lbPeriod] === null ? (
+          <div className="t-card" style={{ marginBottom: 32 }}><div className="empty-state">Loading…</div></div>
+        ) : (lbData[lbPeriod] ?? []).length === 0 ? (
+          <div className="t-card" style={{ marginBottom: 32 }}><div className="empty-state">No races recorded yet for this period.</div></div>
+        ) : (
+          <div className="dash-hist-table" style={{ marginBottom: 32 }}>
+            {(lbData[lbPeriod] ?? []).map((entry, i) => {
+              const medal = ({ 0: '🥇', 1: '🥈', 2: '🥉' } as Record<number, string>)[i];
+              const maxWpm = Math.max(...(lbData[lbPeriod] ?? []).map((x) => x.wpm));
+              return (
+                <div className="lb-row" key={entry.username}>
+                  <span className="lb-rank">{medal ?? `#${i + 1}`}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="dash-bar-track" style={{ flex: 1 }}>
+                      <div className="dash-bar-fill" style={{ width: `${(entry.wpm / maxWpm) * 100}%` }} />
+                    </div>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, minWidth: 48 }}>{entry.username}</span>
+                  </div>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', textAlign: 'right' }}>
+                    {entry.wpm} <span style={{ color: 'var(--muted)', fontSize: 10 }}>wpm</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="t-label" style={{ marginBottom: 12 }}>Recent races</div>
         {historyLoading ? (

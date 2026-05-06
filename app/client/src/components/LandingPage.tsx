@@ -146,6 +146,7 @@ export default function LandingPage({ onCreateRoom, onJoinRoom, onLogin, onGuest
           letter-spacing: -1.5px;
           line-height: 1.15;
           margin-bottom: 12px;
+          color: var(--text);
         }
         .hero-text p {
           font-size: 16px;

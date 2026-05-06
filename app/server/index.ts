@@ -6,6 +6,7 @@ import { health } from './endpoints/health'
 import { login, signup } from './endpoints/auth'
 import { roomHandler } from './endpoints/room'
 import { profileHandler } from './endpoints/profile'
+import { leaderboardHandler } from './endpoints/leaderboard'
 import { setupSocketIO } from './socket'
 
 const fromEnv = process.env.PORT
@@ -43,6 +44,11 @@ const server = createServer((req, res) => {
 
   if (pathname.startsWith('/profile')) {
     void Promise.resolve(profileHandler(req, res, pathname))
+    return
+  }
+
+  if (pathname === '/leaderboard') {
+    void Promise.resolve(leaderboardHandler(req, res))
     return
   }
 

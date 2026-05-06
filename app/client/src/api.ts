@@ -148,6 +148,14 @@ export async function updateProfile(
   return res.json() as Promise<UpdateProfileResponse>
 }
 
+export type LeaderboardEntry = { username: string; wpm: number }
+export type LeaderboardResponse = { players: LeaderboardEntry[] } | { error: string }
+
+export async function getLeaderboard(period: 'day' | 'week' | 'month'): Promise<LeaderboardResponse> {
+  const res = await fetch(`${API_BASE}/leaderboard?period=${period}`)
+  return res.json() as Promise<LeaderboardResponse>
+}
+
 export type DeleteAccountResponse = { ok: true } | { error: string }
 
 export async function deleteAccount(

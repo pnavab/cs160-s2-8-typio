@@ -12,6 +12,23 @@ export async function saveResult(data: {
   return RaceResult.create(data)
 }
 
+export async function getLeaderboard(period: 'day' | 'week' | 'month') {
+  const now = new Date()
+  const startDate = new Date(now)
+  if (period === 'day') startDate.setDate(now.getDate() - 1)
+  else if (period === 'week') startDate.setDate(now.getDate() - 7)
+  else startDate.setMonth(now.getMonth() - 1)
+
+  const results = await RaceResult.aggregate<{ username: string; wpm: number }>([
+    { $match: { createdAt: { $gte: startDate } } },
+    { $group: { _id: '$username', wpm: { $max: '$wpm' } } },
+    { $sort: { wpm: -1 } },
+    { $limit: 5 },
+    { $project: { _id: 0, username: '$_id', wpm: 1 } },
+  ])
+  return results
+}
+
 export async function getProfile(username: string) {
   const [results, userDoc] = await Promise.all([
     RaceResult.find({ username }).sort({ createdAt: -1 }).lean(),
