@@ -121,7 +121,7 @@ export default function Lobby({ room, user, onRaceStart, onLeave }: LobbyProps) 
     if (!room?.code || !user?.username || raceStartedRef.current) return;
     raceStartedRef.current = true;
     const result = await startRace(room.code, user.username);
-    getSocket().emit('race-started', { roomCode: room.code });
+    getSocket().emit('race-started', { roomCode: room.code, totalPlayers: players.length });
     const updatedRoom = !('error' in result) ? result.room : null;
     onRaceStart({
       room: {

@@ -9,8 +9,39 @@ type PlayerResult = {
   placement: number
 }
 
-// In-memory race results per room, cleared when a new race starts
-const roomResults = new Map<string, PlayerResult[]>()
+type FinisherData = {
+  username: string
+  wpm: number
+  accuracy: number
+  difficulty: string
+}
+
+type RoomState = {
+  finishers: FinisherData[]
+  // Broadcast-ready results
+  results: PlayerResult[]
+  totalPlayers: number
+  saved: boolean
+  saveTimer: ReturnType<typeof setTimeout> | null
+}
+
+const roomStates = new Map<string, RoomState>()
+
+function persistRoomResults(roomCode: string) {
+  const state = roomStates.get(roomCode)
+  if (!state || state.saved || state.finishers.length === 0) return
+  state.saved = true
+  if (state.saveTimer) {
+    clearTimeout(state.saveTimer)
+    state.saveTimer = null
+  }
+  const sorted = [...state.finishers].sort((a, b) => b.wpm - a.wpm)
+  sorted.forEach((f, i) => {
+    if (!f.username.startsWith('Guest ')) {
+      void saveResult({ username: f.username, wpm: f.wpm, accuracy: f.accuracy, placement: i + 1, roomCode, difficulty: f.difficulty })
+    }
+  })
+}
 
 export function setupSocketIO(httpServer: HttpServer) {
   const io = new Server(httpServer, {
@@ -22,16 +53,24 @@ export function setupSocketIO(httpServer: HttpServer) {
       if (!roomCode || !username) return
       void socket.join(roomCode)
       // Send any already-finished results to the newly connected socket
-      const results = roomResults.get(roomCode)
-      if (results && results.length > 0) {
-        socket.emit('race-results', { results })
+      const state = roomStates.get(roomCode)
+      if (state && state.results.length > 0) {
+        socket.emit('race-results', { results: state.results })
       }
     })
 
     // Host emits this when starting a race to reset results from any prior race
-    socket.on('race-started', ({ roomCode }: { roomCode: string }) => {
+    socket.on('race-started', ({ roomCode, totalPlayers }: { roomCode: string; totalPlayers?: number }) => {
       if (!roomCode) return
-      roomResults.set(roomCode, [])
+      const existing = roomStates.get(roomCode)
+      if (existing?.saveTimer) clearTimeout(existing.saveTimer)
+      roomStates.set(roomCode, {
+        finishers: [],
+        results: [],
+        totalPlayers: totalPlayers ?? 0,
+        saved: false,
+        saveTimer: null,
+      })
     })
 
     socket.on(
@@ -78,26 +117,38 @@ export function setupSocketIO(httpServer: HttpServer) {
         difficulty?: string
       }) => {
         if (!roomCode || !username) return
-        if (!roomResults.has(roomCode)) roomResults.set(roomCode, [])
-        const results = roomResults.get(roomCode)!
-        // Avoid duplicates if the client emits more than once
-        if (results.find((r) => r.username === username)) return
-        const placement = results.length + 1
-        const result: PlayerResult = { username, wpm, accuracy, placement }
-        results.push(result)
-        // Persist to MongoDB only for registered players, not guests
-        if (!username.startsWith('Guest ')) {
-          void saveResult({ username, wpm, accuracy, placement, roomCode, difficulty })
+        if (!roomStates.has(roomCode)) {
+          roomStates.set(roomCode, { finishers: [], results: [], totalPlayers: 0, saved: false, saveTimer: null })
         }
+        const state = roomStates.get(roomCode)!
+        // Avoid duplicates if the client emits more than once
+        if (state.finishers.find((f) => f.username === username)) return
+
+        state.finishers.push({ username, wpm, accuracy, difficulty })
+
+        // Rank among finishers so far by WPM (highest = 1st)
+        const sortedByWpm = [...state.finishers].sort((a, b) => b.wpm - a.wpm)
+        const placement = sortedByWpm.findIndex((f) => f.username === username) + 1
+        const result: PlayerResult = { username, wpm, accuracy, placement }
+        state.results.push(result)
+
         // Broadcast to everyone in the room (including the finisher)
         io.to(roomCode).emit('player-finished', result)
+
+        const allFinished = state.totalPlayers > 0 && state.finishers.length >= state.totalPlayers
+        if (allFinished) {
+          persistRoomResults(roomCode)
+        } else if (!state.saveTimer) {
+          // Save after 60s in case remaining players disconnect
+          state.saveTimer = setTimeout(() => persistRoomResults(roomCode), 60_000)
+        }
       },
     )
 
-    // Client requests current results snapshot (e.g. on ResultsScreen mount)
+    // Client requests current results snapshot
     socket.on('request-results', ({ roomCode }: { roomCode: string }) => {
       if (!roomCode) return
-      const results = roomResults.get(roomCode) ?? []
+      const results = roomStates.get(roomCode)?.results ?? []
       socket.emit('race-results', { results })
     })
 
